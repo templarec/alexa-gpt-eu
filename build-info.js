@@ -3,7 +3,10 @@ const { execSync } = require("child_process");
 
 function safeExec(command, fallback = null) {
   try {
-    return execSync(command, { encoding: "utf8" }).trim();
+    return execSync(command, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
   } catch (error) {
     return fallback;
   }
@@ -18,13 +21,24 @@ function getPackageVersion() {
   }
 }
 
+function isGitDirty() {
+  try {
+    execSync("git diff --quiet && git diff --cached --quiet", {
+      stdio: "ignore",
+    });
+    return false;
+  } catch (error) {
+    return true;
+  }
+}
+
 const buildInfo = {
   packageVersion: getPackageVersion(),
   gitCommit: safeExec("git rev-parse HEAD", null),
   gitShortCommit: safeExec("git rev-parse --short HEAD", null),
   gitBranch: safeExec("git rev-parse --abbrev-ref HEAD", null),
   gitTag: safeExec("git describe --tags --exact-match", null),
-  gitDirty: safeExec("git diff --quiet || echo dirty", "") === "dirty",
+  gitDirty: isGitDirty(),
   deployedAt: new Date().toISOString(),
 };
 
