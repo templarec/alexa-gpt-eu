@@ -1,0 +1,197 @@
+const { appendActivityRow, getLatestWeight } = require("../../sheets");
+const { parseJsonBody, jsonResponse } = require("../../utils/http");
+
+async function createActivityFromHttp(event, { date, time }) {
+  const body = parseJsonBody(event);
+
+  const source = String(body.source || "").trim();
+  const activityType = String(body.activity_type || "").trim();
+  const description = String(body.description || "").trim();
+  const sourceId = String(body.source_id || "").trim();
+  const sourceUrl = String(body.source_url || "").trim();
+
+  const calories = body.calories === "" || body.calories == null
+    ? null
+    : Number(body.calories);
+
+  const totalCalories = body.total_calories === "" || body.total_calories == null
+    ? null
+    : Number(body.total_calories);
+
+  const distanceKm = body.distance_km === "" || body.distance_km == null
+    ? null
+    : Number(body.distance_km);
+
+  const durationMin = body.duration_min === "" || body.duration_min == null
+    ? null
+    : Number(body.duration_min);
+
+  const steps = body.steps === "" || body.steps == null
+    ? null
+    : Number(body.steps);
+
+  const avgSpeedKmh = body.avg_speed_kmh === "" || body.avg_speed_kmh == null
+    ? null
+    : Number(body.avg_speed_kmh);
+
+  let activityDate = date;
+  let activityTime = time;
+
+  if (body.activity_date) {
+    const d = new Date(body.activity_date);
+    if (!Number.isNaN(d.getTime())) {
+      const iso = d.toISOString();
+      activityDate = iso.slice(0, 10);
+      activityTime = iso.slice(11, 16);
+    }
+  }
+
+  if (!source || !activityType) {
+    return jsonResponse(400, {
+      error: "source e activity_type sono obbligatori"
+    });
+  }
+
+  if ([calories, totalCalories, distanceKm, durationMin, steps, avgSpeedKmh].some((n) => n !== null && !Number.isFinite(n))) {
+    return jsonResponse(400, {
+      error: "calories, distance_km, duration_min e steps devono essere numeri validi"
+    });
+  }
+
+  // Automatic calorie estimation if not provided
+  let computedCalories = calories;
+
+  let effectiveDurationMin = durationMin;
+
+  if (
+    effectiveDurationMin == null &&
+    distanceKm != null &&
+    avgSpeedKmh != null &&
+    avgSpeedKmh > 0
+  ) {
+    effectiveDurationMin = Math.round((distanceKm / avgSpeedKmh) * 60);
+  }
+
+  if (computedCalories == null) {
+    let weightKg = await getLatestWeight();
+
+    if (!weightKg) {
+      weightKg = Number(process.env.USER_WEIGHT_KG || 95);
+    }
+
+    // If Withings provides active calories, use them as source of truth.
+    if (source === "withings" && calories != null) {
+      computedCalories = calories;
+    }
+
+    // If we have distance and duration we can estimate MET
+    else if (distanceKm != null && effectiveDurationMin != null && effectiveDurationMin > 0) {
+      const speed = distanceKm / (effectiveDurationMin / 60);
+
+      let MET = 3;
+
+      // walking / light activity
+      if (speed < 4) MET = 2.8;
+      else if (speed < 5) MET = 3.5;
+      else if (speed < 6) MET = 4.3;
+
+      // jogging / cycling moderate
+      else if (speed < 8) MET = 6;
+      else if (speed < 10) MET = 8;
+      else MET = 10;
+
+      computedCalories = Math.round(MET * weightKg * (effectiveDurationMin / 60));
+    }
+
+    // fallback using distance
+    else if (distanceKm != null) {
+      computedCalories = Math.round(distanceKm * weightKg * 0.75);
+    }
+
+    // fallback using steps
+    else if (steps != null) {
+      computedCalories = Math.round(steps * 0.04);
+    }
+  }
+
+  const row = [
+    activityDate,
+    activityTime,
+    source,
+    activityType,
+    description,
+    computedCalories ?? "",
+    distanceKm ?? "",
+    effectiveDurationMin ?? "",
+    steps ?? "",
+    avgSpeedKmh ?? "",
+    sourceId ?? "",
+    sourceUrl ?? "",
+    JSON.stringify(body)
+  ];
+
+  const result = await appendActivityRow(row);
+
+  if (result && result.updated) {
+    console.log("ACTIVITY UPDATED", JSON.stringify({
+      date: activityDate,
+      time: activityTime,
+      source,
+      activityType,
+      sourceId,
+      computedCalories,
+      distanceKm,
+      effectiveDurationMin,
+      steps,
+      avgSpeedKmh
+    }));
+  } else if (result && result.skipped) {
+    console.log("ACTIVITY SKIPPED", JSON.stringify({
+      reason: result.reason || "skipped",
+      sourceId
+    }));
+
+    return jsonResponse(200, {
+      success: true,
+      skipped: true,
+      reason: result.reason,
+      source_id: result.sourceId || null
+    });
+  } else {
+    console.log("ACTIVITY SAVED", JSON.stringify({
+      date: activityDate,
+      time: activityTime,
+      source,
+      activityType,
+      sourceId,
+      computedCalories,
+      distanceKm,
+      effectiveDurationMin,
+      steps,
+      avgSpeedKmh
+    }));
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    saved: {
+      date: activityDate,
+      time: activityTime,
+      source,
+      activity_type: activityType,
+      description,
+      source_id: sourceId || null,
+      source_url: sourceUrl || null,
+      calories: computedCalories,
+      total_calories: totalCalories,
+      distance_km: distanceKm,
+      duration_min: effectiveDurationMin,
+      steps,
+      avg_speed_kmh: avgSpeedKmh
+    }
+  });
+}
+
+module.exports = {
+  createActivityFromHttp
+};

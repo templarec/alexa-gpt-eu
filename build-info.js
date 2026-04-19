@@ -1,0 +1,33 @@
+const fs = require("fs");
+const { execSync } = require("child_process");
+
+function safeExec(command, fallback = null) {
+  try {
+    return execSync(command, { encoding: "utf8" }).trim();
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function getPackageVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
+    return pkg.version || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+const buildInfo = {
+  packageVersion: getPackageVersion(),
+  gitCommit: safeExec("git rev-parse HEAD", null),
+  gitShortCommit: safeExec("git rev-parse --short HEAD", null),
+  gitBranch: safeExec("git rev-parse --abbrev-ref HEAD", null),
+  gitTag: safeExec("git describe --tags --exact-match", null),
+  gitDirty: safeExec("git diff --quiet || echo dirty", "") === "dirty",
+  deployedAt: new Date().toISOString(),
+};
+
+fs.writeFileSync("./build-info.json", JSON.stringify(buildInfo, null, 2));
+console.log("BUILD INFO WRITTEN");
+console.log(buildInfo);

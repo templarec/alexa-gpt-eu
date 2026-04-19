@@ -1,0 +1,8 @@
+.env
+.env.*
+lambda.zip
+build-info.json
+node_modules
+node_modules/.cache
+.DS_Store
+.vscode

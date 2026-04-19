@@ -1,0 +1,15 @@
+{
+  "name": "alambicco-ai-skill",
+  "version": "1.0.0",
+  "description": "Alexa skill con chat OpenAI + log pasti su Google Sheets",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "dotenv": "^17.4.2",
+    "googleapis": "^137.0.0"
+  }
+}

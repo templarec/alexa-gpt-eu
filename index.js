@@ -1,0 +1,669 @@
+const fs = require("fs");
+const path = require("path");
+const Alexa = require("ask-sdk-core");
+const { askChat, analyzeMeal } = require("./openai");
+const {
+  appendMealRow,
+  appendBodyRow,
+  getTodayRunningTotal,
+  getLastBodyRow,
+} = require("./sheets");
+const { getDateTimeParts } = require("./utils");
+const { normalizeNumbers } = require("./numberNormalizer");
+const { TIMEZONE, DAILY_TARGET } = require("./config");
+const { authorizeHttpRequest, jsonResponse } = require("./utils/http");
+const { handleGetDietToday } = require("./handlers/http/diet");
+const { createActivityFromHttp } = require("./handlers/http/activity");
+const {
+  exportMeals,
+  createMealFromHttp,
+  createAnalyzedMealFromHttp,
+  getMealsToday,
+} = require("./handlers/http/meals");
+const {
+  fetchWithingsMeasures,
+  parseLatestWithingsMetrics,
+  parseAllWithingsMetrics,
+  fetchWithingsMeasuresByRange,
+  fetchWithingsActivityByDate,
+  parseLatestWithingsDailyActivity,
+  parseWithingsWebhookPayload,
+} = require("./handlers/http/withings");
+const { DailySummaryIntentHandler } = require("./handlers/alexa/dailySummary");
+
+function getBuildInfo() {
+  try {
+    const filePath = path.join(__dirname, "build-info.json");
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    return {
+      packageVersion: null,
+      gitCommit: null,
+      gitShortCommit: null,
+      gitBranch: null,
+      gitTag: null,
+      gitDirty: null,
+      deployedAt: null,
+    };
+  }
+}
+
+function buildMealHandler(intentName, mealType) {
+  return {
+    canHandle(handlerInput) {
+      return (
+        Alexa.getRequestType(handlerInput.requestEnvelope) ===
+          "IntentRequest" &&
+        Alexa.getIntentName(handlerInput.requestEnvelope) === intentName
+      );
+    },
+    async handle(handlerInput) {
+      let mealText =
+        handlerInput.requestEnvelope.request.intent.slots?.meal?.value?.trim();
+
+      if (!mealText) {
+        const missingSpeech =
+          mealType === "attivita"
+            ? "Non ho capito il contenuto dell'attività. Ripeti includendo quantità o durata."
+            : `Non ho capito il contenuto della ${mealType}. Ripeti includendo quantità e alimenti.`;
+
+        const missingReprompt =
+          mealType === "attivita"
+            ? "Per esempio: attività 6900 passi oppure attività camminata 40 minuti."
+            : `Per esempio: ${mealType} 170 grammi di yogurt greco e una banana.`;
+
+        return handlerInput.responseBuilder
+          .speak(missingSpeech)
+          .reprompt(missingReprompt)
+          .getResponse();
+      }
+
+      mealText = normalizeNumbers(mealText);
+
+      try {
+        const analysis = await analyzeMeal(mealType, mealText);
+        const { date, time } = getDateTimeParts(TIMEZONE);
+
+        const previousTotal = await getTodayRunningTotal(date);
+        const newTotal = previousTotal + Number(analysis.total.calories || 0);
+
+        await appendMealRow([
+          date,
+          time,
+          analysis.meal_type || mealType,
+          analysis.description_normalized || mealText,
+          Number(analysis.total.calories || 0),
+          Number(analysis.total.protein || 0),
+          Number(analysis.total.carbs || 0),
+          Number(analysis.total.fat || 0),
+        ]);
+
+        const target = DAILY_TARGET;
+        const remaining = target - newTotal;
+
+        let remainingSpeech;
+
+        if (remaining > 0) {
+          remainingSpeech = `Ti restano circa ${Math.round(remaining)} calorie oggi.`;
+        } else {
+          remainingSpeech = `Hai superato il target di circa ${Math.abs(Math.round(remaining))} calorie.`;
+        }
+
+        let speechText =
+          `${mealType === "attivita" ? "Ho registrato l'attività. " : `Ho registrato la ${mealType}. `}` +
+          `${Number(analysis.total.calories || 0)} calorie. ` +
+          `Totale di oggi: ${newTotal}. ` +
+          remainingSpeech;
+
+        if (analysis.missing_quantities) {
+          speechText +=
+            " Attenzione: per almeno un alimento mancava una quantità chiara, quindi il calcolo è più approssimativo.";
+        }
+
+        return handlerInput.responseBuilder
+          .speak(speechText)
+          .reprompt(
+            "Puoi registrare un altro pasto oppure chiedermi il riepilogo di oggi.",
+          )
+          .getResponse();
+      } catch (error) {
+        console.error(`Errore ${intentName}:`, error);
+
+        let speechText = "C'è stato un problema nel registrare il pasto.";
+
+        if (String(error.message).includes("insufficient_quota")) {
+          speechText =
+            "La connessione a OpenAI funziona, ma il credito API disponibile è terminato.";
+        }
+
+        return handlerInput.responseBuilder
+          .speak(speechText)
+          .reprompt("Riprova dicendo il pasto con quantità più chiare.")
+          .getResponse();
+      }
+    },
+  };
+}
+
+const LaunchRequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "LaunchRequest"
+    );
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder
+      .speak("Ciao, sono Alambicco.")
+      .reprompt(
+        "Prova a dire: pranzo 80 grammi di riso basmati e 120 grammi di tonno. Oppure: attività camminata 40 minuti.",
+      )
+      .getResponse();
+  },
+};
+
+const AskChatGPTIntentHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "AskChatGPTIntent"
+    );
+  },
+  async handle(handlerInput) {
+    let question =
+      handlerInput.requestEnvelope.request.intent.slots?.question?.value?.trim();
+
+    if (!question) {
+      return handlerInput.responseBuilder
+        .speak("Non ho capito la domanda. Prova a ripeterla.")
+        .reprompt("Dimmi pure la tua domanda.")
+        .getResponse();
+    }
+
+    const sessionAttributes =
+      handlerInput.attributesManager.getSessionAttributes();
+    const history = sessionAttributes.history || [];
+
+    question = question
+      .replace(/^a alambicco ai\s+/i, "")
+      .replace(/^ad alambicco ai\s+/i, "")
+      .trim();
+
+    try {
+      const answer = await askChat(question, history);
+
+      const newHistory = [
+        ...history,
+        { role: "user", content: question },
+        { role: "assistant", content: answer },
+      ].slice(-6);
+
+      sessionAttributes.history = newHistory;
+      handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
+
+      return handlerInput.responseBuilder
+        .speak(answer)
+        .reprompt("Puoi continuare, oppure chiedermi il riepilogo di oggi.")
+        .getResponse();
+    } catch (error) {
+      console.error("Errore AskChatGPTIntent:", error);
+
+      let speechText = "C'è stato un problema nel recuperare la risposta.";
+
+      if (String(error.message).includes("insufficient_quota")) {
+        speechText =
+          "La connessione a OpenAI è configurata, ma il credito API disponibile è terminato.";
+      }
+
+      return handlerInput.responseBuilder
+        .speak(speechText)
+        .reprompt("Puoi riprovare con una domanda più breve.")
+        .getResponse();
+    }
+  },
+};
+
+const FollowUpIntentHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "FollowUpIntent"
+    );
+  },
+  async handle(handlerInput) {
+    const sessionAttributes =
+      handlerInput.attributesManager.getSessionAttributes();
+    const history = sessionAttributes.history || [];
+
+    if (history.length === 0) {
+      return handlerInput.responseBuilder
+        .speak("Non ho ancora un contesto. Fai prima una domanda completa.")
+        .reprompt("Per esempio, puoi dire: spiegami i buchi neri.")
+        .getResponse();
+    }
+
+    const followUpPrompt =
+      "Approfondisci la risposta precedente in modo chiaro, breve e parlato.";
+
+    try {
+      const answer = await askChat(followUpPrompt, history);
+
+      const newHistory = [
+        ...history,
+        { role: "user", content: followUpPrompt },
+        { role: "assistant", content: answer },
+      ].slice(-6);
+
+      sessionAttributes.history = newHistory;
+      handlerInput.attributesManager.setSessionAttributes(sessionAttributes);
+
+      return handlerInput.responseBuilder
+        .speak(answer)
+        .reprompt("Puoi farmi un'altra domanda o chiedermi un esempio.")
+        .getResponse();
+    } catch (error) {
+      console.error("Errore FollowUpIntent:", error);
+
+      return handlerInput.responseBuilder
+        .speak("C'è stato un problema nel continuare la conversazione.")
+        .reprompt("Puoi riprovare.")
+        .getResponse();
+    }
+  },
+};
+
+const HelpIntentHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) === "AMAZON.HelpIntent"
+    );
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder
+      .speak(
+        "Puoi farmi una domanda, registrare un pasto oppure registrare un'attività. Per esempio: pranzo 80 grammi di riso basmati e 120 grammi di tonno. Oppure: attività 6900 passi. Puoi anche chiedere: riepilogo oggi.",
+      )
+      .reprompt("Prova a dirmi cosa hai mangiato.")
+      .getResponse();
+  },
+};
+
+const CancelAndStopIntentHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      (Alexa.getIntentName(handlerInput.requestEnvelope) ===
+        "AMAZON.CancelIntent" ||
+        Alexa.getIntentName(handlerInput.requestEnvelope) ===
+          "AMAZON.StopIntent")
+    );
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder.speak("A presto.").getResponse();
+  },
+};
+
+const FallbackIntentHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) === "IntentRequest" &&
+      Alexa.getIntentName(handlerInput.requestEnvelope) ===
+        "AMAZON.FallbackIntent"
+    );
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder
+      .speak(
+        "Non ho capito. Puoi farmi una domanda, dire un pasto con quantità, oppure registrare un'attività, per esempio: attività 6900 passi.",
+      )
+      .reprompt("Riprova con una frase più chiara.")
+      .getResponse();
+  },
+};
+
+const SessionEndedRequestHandler = {
+  canHandle(handlerInput) {
+    return (
+      Alexa.getRequestType(handlerInput.requestEnvelope) ===
+      "SessionEndedRequest"
+    );
+  },
+  handle(handlerInput) {
+    return handlerInput.responseBuilder.getResponse();
+  },
+};
+
+const ErrorHandler = {
+  canHandle() {
+    return true;
+  },
+  handle(handlerInput, error) {
+    console.error("Errore generale skill:", error);
+
+    return handlerInput.responseBuilder
+      .speak("Si è verificato un errore.")
+      .reprompt("Riprova tra poco.")
+      .getResponse();
+  },
+};
+
+async function httpHandler(event) {
+  const path = event.rawPath || event.path || "/";
+  const method =
+    event.requestContext?.http?.method || event.httpMethod || "GET";
+
+  // Withings webhook (no auth)
+  if (path.includes("/withings/webhook") && method === "POST") {
+    console.log(
+      "WITHINGS WEBHOOK RECEIVED",
+      JSON.stringify({ path, method, hasBody: !!event.body }),
+    );
+    // Withings may send a validation POST with empty or non-JSON body.
+    if (!event.body) {
+      return jsonResponse(200, { ok: true, validation: true });
+    }
+    let payload;
+    try {
+      payload = parseWithingsWebhookPayload(event);
+
+      if (!payload) {
+        console.log(
+          "WITHINGS PAYLOAD PARSE FAILED",
+          "empty_or_invalid_payload",
+        );
+        return jsonResponse(200, { ok: true, ignored: true });
+      }
+
+      console.log("WITHINGS PAYLOAD", JSON.stringify(payload));
+    } catch (error) {
+      console.log(
+        "WITHINGS PAYLOAD PARSE FAILED",
+        String(error?.message || error),
+      );
+      return jsonResponse(200, { ok: true, ignored: true });
+    }
+
+    // BODY MEASUREMENTS (weight, fat etc.)
+    if (payload.appli === 1) {
+      console.log(
+        "WITHINGS WEIGHT EVENT",
+        JSON.stringify({
+          startdate: payload.startdate,
+          enddate: payload.enddate,
+        }),
+      );
+      if (!payload.startdate || !payload.enddate) {
+        return jsonResponse(200, { ok: true, ignored: true });
+      }
+
+      const raw = await fetchWithingsMeasuresByRange(
+        payload.startdate,
+        payload.enddate,
+      );
+
+      const measures = parseAllWithingsMetrics(raw);
+      console.log("WITHINGS WEIGHT MEASURES COUNT", measures.length);
+
+      let inserted = 0;
+
+      for (const m of measures) {
+        const measureDate = new Date(m.sourceDate * 1000);
+        const date = measureDate.toISOString().slice(0, 10);
+        const time = measureDate.toTimeString().slice(0, 5);
+
+        await appendBodyRow([
+          date,
+          time,
+          "withings",
+          m.weight,
+          m.bodyFat ?? "",
+          m.muscleMass ?? "",
+          m.waterMass ?? "",
+          m.fatMass ?? "",
+          m.leanMass ?? "",
+          JSON.stringify(m.rawGroup),
+        ]);
+
+        inserted++;
+      }
+
+      return jsonResponse(200, {
+        success: true,
+        imported: inserted,
+      });
+    }
+
+    // ACTIVITY (steps, distance etc.)
+    if (payload.appli === 16 && payload.date) {
+      console.log(
+        "WITHINGS ACTIVITY EVENT",
+        JSON.stringify({ date: payload.date }),
+      );
+      const raw = await fetchWithingsActivityByDate(payload.date);
+      const activity = parseLatestWithingsDailyActivity(raw, payload.date);
+
+      if (!activity) {
+        return jsonResponse(200, { ok: true, ignored: true });
+      }
+
+      await createActivityFromHttp(
+        {
+          body: JSON.stringify({
+            source: "withings",
+            activity_type: "steps",
+            description: "withings daily steps",
+            activity_date: activity.activityDate,
+            steps: activity.steps,
+            distance_km: activity.distanceKm,
+            duration_min: null,
+            avg_speed_kmh: null,
+            calories: activity.calories,
+            total_calories: activity.totalCalories,
+            elevation_m: activity.elevationM,
+            soft_minutes: activity.soft,
+            moderate_minutes: activity.moderate,
+            intense_minutes: activity.intense,
+            device_model: activity.deviceModel,
+            timezone: activity.timezone,
+            source_id: activity.sourceId,
+            source_url: activity.sourceUrl,
+          }),
+        },
+        { date: activity.activityDate, time: "00:00" },
+      );
+
+      return jsonResponse(200, {
+        success: true,
+        imported: 1,
+      });
+    }
+
+    return jsonResponse(200, { ok: true, ignored: true });
+  }
+
+  // Protect all HTTP routes except the Withings webhook
+  if (!path.includes("/withings/webhook") && !authorizeHttpRequest(event)) {
+    return jsonResponse(401, { error: "Unauthorized" });
+  }
+
+  if (path.includes("/version") && method === "GET") {
+    return jsonResponse(200, {
+      ok: true,
+      service: "dieta-api",
+      version: getBuildInfo(),
+    });
+  }
+
+  if (path.includes("/withings/import-all") && method === "GET") {
+    const raw = await fetchWithingsMeasures();
+    const measures = parseAllWithingsMetrics(raw);
+
+    const now = new Date();
+    const cutoff = new Date(now);
+    cutoff.setFullYear(cutoff.getFullYear() - 2);
+
+    const recentMeasures = measures.filter((m) => {
+      const measureDate = new Date(m.sourceDate * 1000);
+      return measureDate >= cutoff;
+    });
+
+    let inserted = 0;
+
+    for (const m of recentMeasures) {
+      const measureDate = new Date(m.sourceDate * 1000);
+      const date = measureDate.toISOString().slice(0, 10);
+      const time = measureDate.toTimeString().slice(0, 5);
+
+      await appendBodyRow([
+        date,
+        time,
+        "withings",
+        m.weight,
+        m.bodyFat ?? "",
+        m.muscleMass ?? "",
+        m.waterMass ?? "",
+        m.fatMass ?? "",
+        m.leanMass ?? "",
+        JSON.stringify(m.rawGroup),
+      ]);
+
+      inserted++;
+    }
+    return jsonResponse(200, {
+      success: true,
+      imported: inserted,
+      cutoff: cutoff.toISOString().slice(0, 10),
+    });
+  }
+
+  if (path.includes("/activity") && method === "POST") {
+    const { date, time } = getDateTimeParts(TIMEZONE);
+    return createActivityFromHttp(event, { date, time });
+  }
+
+  if (path.includes("/meals/today") && method === "GET") {
+    const { date } = getDateTimeParts(TIMEZONE);
+    return getMealsToday({ date });
+  }
+
+  if (path.includes("/meals/analyze") && method === "POST") {
+    const { date, time } = getDateTimeParts(TIMEZONE);
+    return createAnalyzedMealFromHttp(event, { date, time });
+  }
+
+  if (path.includes("/diet/today") && method === "GET") {
+    const { date } = getDateTimeParts(TIMEZONE);
+    return handleGetDietToday({ date });
+  }
+
+  if (path.includes("/meals") && method === "POST") {
+    const { date, time } = getDateTimeParts(TIMEZONE);
+    return createMealFromHttp(event, { date, time });
+  }
+
+  if (path.includes("/meals") && method === "GET") {
+    return exportMeals();
+  }
+
+  if (path.includes("/withings/latest") && method === "GET") {
+    const raw = await fetchWithingsMeasures();
+    const latest = parseLatestWithingsMetrics(raw);
+
+    if (!latest) {
+      return jsonResponse(404, {
+        error: "Nessuna misura valida trovata in Withings",
+      });
+    }
+
+    const measureDate = new Date(latest.sourceDate * 1000);
+
+    const date = measureDate.toISOString().slice(0, 10);
+    const time = measureDate.toTimeString().slice(0, 5);
+
+    const last = await getLastBodyRow();
+
+    if (last && String(last.sourceDate) === String(latest.sourceDate)) {
+      return jsonResponse(200, {
+        success: true,
+        skipped: true,
+        reason: "duplicate_measure",
+        weight: latest.weight,
+        body_fat: latest.bodyFat,
+        muscle_mass: latest.muscleMass,
+        water_mass: latest.waterMass,
+        fat_mass: latest.fatMass,
+        lean_mass: latest.leanMass,
+      });
+    }
+
+    await appendBodyRow([
+      date,
+      time,
+      "withings",
+      latest.weight,
+      latest.bodyFat ?? "",
+      latest.muscleMass ?? "",
+      latest.waterMass ?? "",
+      latest.fatMass ?? "",
+      latest.leanMass ?? "",
+      JSON.stringify(latest.rawGroup),
+    ]);
+
+    return jsonResponse(200, {
+      success: true,
+      saved: {
+        date,
+        time,
+        source: "withings",
+        weight: latest.weight,
+        body_fat: latest.bodyFat,
+        muscle_mass: latest.muscleMass,
+        water_mass: latest.waterMass,
+        fat_mass: latest.fatMass,
+        lean_mass: latest.leanMass,
+      },
+    });
+  }
+
+  return jsonResponse(404, { error: "Not found", path, method });
+}
+
+const LogBreakfastIntentHandler = buildMealHandler(
+  "LogBreakfastIntent",
+  "colazione",
+);
+const LogLunchIntentHandler = buildMealHandler("LogLunchIntent", "pranzo");
+const LogDinnerIntentHandler = buildMealHandler("LogDinnerIntent", "cena");
+const LogSnackIntentHandler = buildMealHandler("LogSnackIntent", "spuntino");
+const LogActivityIntentHandler = buildMealHandler(
+  "LogActivityIntent",
+  "attivita",
+);
+
+const skill = Alexa.SkillBuilders.custom()
+  .addRequestHandlers(
+    LaunchRequestHandler,
+    AskChatGPTIntentHandler,
+    FollowUpIntentHandler,
+    LogBreakfastIntentHandler,
+    LogLunchIntentHandler,
+    LogDinnerIntentHandler,
+    LogSnackIntentHandler,
+    LogActivityIntentHandler,
+    DailySummaryIntentHandler,
+    HelpIntentHandler,
+    CancelAndStopIntentHandler,
+    FallbackIntentHandler,
+    SessionEndedRequestHandler,
+  )
+  .addErrorHandlers(ErrorHandler)
+  .create();
+
+exports.handler = async (event, context) => {
+  if (event?.requestContext?.http) {
+    return httpHandler(event);
+  }
+
+  return skill.invoke(event, context);
+};
