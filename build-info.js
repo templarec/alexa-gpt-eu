@@ -36,6 +36,7 @@ const buildInfo = {
   packageVersion: getPackageVersion(),
   gitCommit: safeExec("git rev-parse HEAD", null),
   gitShortCommit: safeExec("git rev-parse --short HEAD", null),
+  gitCommitMessage: safeExec("git log -1 --pretty=%s", null),
   gitBranch: safeExec("git rev-parse --abbrev-ref HEAD", null),
   gitTag: safeExec("git describe --tags --exact-match", null),
   gitDirty: isGitDirty(),

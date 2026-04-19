@@ -41,12 +41,24 @@ function getBuildInfo() {
       packageVersion: null,
       gitCommit: null,
       gitShortCommit: null,
+      gitCommitMessage: null,
       gitBranch: null,
       gitTag: null,
       gitDirty: null,
       deployedAt: null,
     };
   }
+}
+
+function getAwsRuntimeInfo() {
+  return {
+    functionName: process.env.AWS_LAMBDA_FUNCTION_NAME || null,
+    functionVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION || null,
+    region: process.env.AWS_REGION || null,
+    executionEnv: process.env.AWS_EXECUTION_ENV || null,
+    logGroupName: process.env.AWS_LAMBDA_LOG_GROUP_NAME || null,
+    logStreamName: process.env.AWS_LAMBDA_LOG_STREAM_NAME || null,
+  };
 }
 
 function buildMealHandler(intentName, mealType) {
@@ -492,6 +504,7 @@ async function httpHandler(event) {
       ok: true,
       service: "dieta-api",
       version: getBuildInfo(),
+      aws: getAwsRuntimeInfo(),
     });
   }
 
