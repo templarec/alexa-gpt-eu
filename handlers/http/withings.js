@@ -1,11 +1,20 @@
 const { getConfigValue, setConfigValue } = require("../../sheets");
 
+function cleanValue(value) {
+  if (value == null) return null;
+  const cleaned = String(value).trim();
+  return cleaned.length ? cleaned : null;
+}
+
 async function refreshWithingsAccessToken() {
-  const clientId = process.env.WITHINGS_CLIENT_ID;
-  const clientSecret = process.env.WITHINGS_CLIENT_SECRET;
-  const refreshToken =
-    (await getConfigValue("withings_refresh_token")) ||
-    process.env.WITHINGS_REFRESH_TOKEN;
+  const clientId = cleanValue(process.env.WITHINGS_CLIENT_ID);
+  const clientSecret = cleanValue(process.env.WITHINGS_CLIENT_SECRET);
+
+  const storedRefreshToken = cleanValue(
+    await getConfigValue("withings_refresh_token"),
+  );
+  const envRefreshToken = cleanValue(process.env.WITHINGS_REFRESH_TOKEN);
+  const refreshToken = storedRefreshToken || envRefreshToken;
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error("Credenziali Withings mancanti per refresh token");
@@ -16,38 +25,59 @@ async function refreshWithingsAccessToken() {
     grant_type: "refresh_token",
     client_id: clientId,
     client_secret: clientSecret,
-    refresh_token: refreshToken
+    refresh_token: refreshToken,
   });
 
-  console.log("WITHINGS REFRESH TOKEN REQUEST", JSON.stringify({
-    hasClientId: !!clientId,
-    hasClientSecret: !!clientSecret,
-    hasRefreshToken: !!refreshToken
-  }));
+  console.log(
+    "WITHINGS REFRESH TOKEN REQUEST",
+    JSON.stringify({
+      hasClientId: !!clientId,
+      hasClientSecret: !!clientSecret,
+      hasRefreshToken: !!refreshToken,
+      refreshTokenLength: refreshToken.length,
+      refreshTokenSuffix: refreshToken.slice(-8),
+      refreshTokenSource: storedRefreshToken ? "config" : "env",
+    }),
+  );
 
   const response = await fetch("https://wbsapi.withings.net/v2/oauth2", {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: params.toString()
+    body: params.toString(),
   });
 
-  const data = await response.json();
+  const rawText = await response.text();
 
-  console.log("WITHINGS REFRESH TOKEN RESPONSE", JSON.stringify({
-    httpStatus: response.status,
-    apiStatus: data?.status,
-    hasAccessToken: !!data?.body?.access_token,
-    hasRefreshToken: !!data?.body?.refresh_token
-  }));
-
-  if (!response.ok || data.status !== 0) {
-    throw new Error(`Refresh token Withings fallito: HTTP ${response.status} / status ${data.status}`);
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    data = null;
   }
 
-  const newAccessToken = data.body.access_token;
-  const newRefreshToken = data.body.refresh_token || refreshToken;
+  console.log(
+    "WITHINGS REFRESH TOKEN RESPONSE",
+    JSON.stringify({
+      httpStatus: response.status,
+      apiStatus: data?.status ?? null,
+      hasAccessToken: !!data?.body?.access_token,
+      hasRefreshToken: !!data?.body?.refresh_token,
+      error: data?.error ?? null,
+      errors: data?.errors ?? null,
+      rawText,
+    }),
+  );
+
+  if (!response.ok || data?.status !== 0 || !data?.body?.access_token) {
+    throw new Error(
+      `Refresh token Withings fallito: HTTP ${response.status} / apiStatus ${data?.status ?? "null"} / raw ${rawText}`,
+    );
+  }
+
+  const newAccessToken = cleanValue(data.body.access_token);
+  const newRefreshToken = cleanValue(data.body.refresh_token) || refreshToken;
 
   await setConfigValue("withings_access_token", newAccessToken);
   await setConfigValue("withings_refresh_token", newRefreshToken);
@@ -55,16 +85,25 @@ async function refreshWithingsAccessToken() {
   process.env.WITHINGS_ACCESS_TOKEN = newAccessToken;
   process.env.WITHINGS_REFRESH_TOKEN = newRefreshToken;
 
+  console.log(
+    "WITHINGS REFRESH TOKEN SAVED",
+    JSON.stringify({
+      accessTokenLength: newAccessToken?.length || 0,
+      refreshTokenLength: newRefreshToken?.length || 0,
+      refreshTokenSuffix: newRefreshToken?.slice(-8) || null,
+    }),
+  );
+
   return {
     accessToken: newAccessToken,
-    refreshToken: newRefreshToken
+    refreshToken: newRefreshToken,
   };
 }
 
 async function fetchWithingsMeasures() {
   let token =
-    (await getConfigValue("withings_access_token")) ||
-    process.env.WITHINGS_ACCESS_TOKEN;
+    cleanValue(await getConfigValue("withings_access_token")) ||
+    cleanValue(process.env.WITHINGS_ACCESS_TOKEN);
 
   if (!token) {
     throw new Error("WITHINGS_ACCESS_TOKEN non configurato");
@@ -75,17 +114,20 @@ async function fetchWithingsMeasures() {
   let response = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${token}`
-    }
+      Authorization: `Bearer ${token}`,
+    },
   });
 
   let data = await response.json();
 
-  console.log("WITHINGS MEASURES RESPONSE", JSON.stringify({
-    httpStatus: response.status,
-    apiStatus: data?.status,
-    measureGroups: data?.body?.measuregrps?.length || 0
-  }));
+  console.log(
+    "WITHINGS MEASURES RESPONSE",
+    JSON.stringify({
+      httpStatus: response.status,
+      apiStatus: data?.status,
+      measureGroups: data?.body?.measuregrps?.length || 0,
+    }),
+  );
 
   if (response.status === 401 || data.status === 401) {
     const refreshed = await refreshWithingsAccessToken();
@@ -94,17 +136,20 @@ async function fetchWithingsMeasures() {
     response = await fetch(url, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     data = await response.json();
 
-    console.log("WITHINGS MEASURES RESPONSE RETRY", JSON.stringify({
-      httpStatus: response.status,
-      apiStatus: data?.status,
-      measureGroups: data?.body?.measuregrps?.length || 0
-    }));
+    console.log(
+      "WITHINGS MEASURES RESPONSE RETRY",
+      JSON.stringify({
+        httpStatus: response.status,
+        apiStatus: data?.status,
+        measureGroups: data?.body?.measuregrps?.length || 0,
+      }),
+    );
   }
 
   if (!response.ok) {
@@ -157,7 +202,7 @@ function parseLatestWithingsMetrics(data) {
         waterMass,
         fatMass,
         leanMass,
-        rawGroup: group
+        rawGroup: group,
       };
     }
   }
@@ -205,7 +250,7 @@ function parseAllWithingsMetrics(data) {
         waterMass,
         fatMass,
         leanMass,
-        rawGroup: group
+        rawGroup: group,
       });
     }
   }
@@ -215,31 +260,37 @@ function parseAllWithingsMetrics(data) {
 
 async function fetchWithingsMeasuresByRange(startdate, enddate) {
   let token =
-    (await getConfigValue("withings_access_token")) ||
-    process.env.WITHINGS_ACCESS_TOKEN;
+    cleanValue(await getConfigValue("withings_access_token")) ||
+    cleanValue(process.env.WITHINGS_ACCESS_TOKEN);
 
   if (!token) {
     throw new Error("WITHINGS_ACCESS_TOKEN non configurato");
   }
 
-  console.log("WITHINGS MEASURES RANGE REQUEST", JSON.stringify({ startdate, enddate }));
+  console.log(
+    "WITHINGS MEASURES RANGE REQUEST",
+    JSON.stringify({ startdate, enddate }),
+  );
 
   const url = `https://wbsapi.withings.net/measure?action=getmeas&startdate=${startdate}&enddate=${enddate}`;
 
   let response = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${token}`
-    }
+      Authorization: `Bearer ${token}`,
+    },
   });
 
   let data = await response.json();
 
-  console.log("WITHINGS MEASURES RANGE RESPONSE", JSON.stringify({
-    httpStatus: response.status,
-    apiStatus: data?.status,
-    measureGroups: data?.body?.measuregrps?.length || 0
-  }));
+  console.log(
+    "WITHINGS MEASURES RANGE RESPONSE",
+    JSON.stringify({
+      httpStatus: response.status,
+      apiStatus: data?.status,
+      measureGroups: data?.body?.measuregrps?.length || 0,
+    }),
+  );
 
   if (response.status === 401 || data.status === 401) {
     const refreshed = await refreshWithingsAccessToken();
@@ -248,17 +299,20 @@ async function fetchWithingsMeasuresByRange(startdate, enddate) {
     response = await fetch(url, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     data = await response.json();
 
-    console.log("WITHINGS MEASURES RANGE RESPONSE RETRY", JSON.stringify({
-      httpStatus: response.status,
-      apiStatus: data?.status,
-      measureGroups: data?.body?.measuregrps?.length || 0
-    }));
+    console.log(
+      "WITHINGS MEASURES RANGE RESPONSE RETRY",
+      JSON.stringify({
+        httpStatus: response.status,
+        apiStatus: data?.status,
+        measureGroups: data?.body?.measuregrps?.length || 0,
+      }),
+    );
   }
 
   if (!response.ok) {
@@ -318,7 +372,7 @@ function parseWithingsWebhookPayload(event) {
           ? String(body.date).includes("-")
             ? body.date
             : Number(body.date)
-          : null
+          : null,
     };
   } catch (err) {
     console.log("WITHINGS PAYLOAD PARSE FAILED", err);
@@ -328,8 +382,8 @@ function parseWithingsWebhookPayload(event) {
 
 async function fetchWithingsActivityByDate(date) {
   let token =
-    (await getConfigValue("withings_access_token")) ||
-    process.env.WITHINGS_ACCESS_TOKEN;
+    cleanValue(await getConfigValue("withings_access_token")) ||
+    cleanValue(process.env.WITHINGS_ACCESS_TOKEN);
 
   if (!token) {
     throw new Error("WITHINGS_ACCESS_TOKEN non configurato");
@@ -342,17 +396,20 @@ async function fetchWithingsActivityByDate(date) {
   let response = await fetch(url, {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${token}`
-    }
+      Authorization: `Bearer ${token}`,
+    },
   });
 
   let data = await response.json();
 
-  console.log("WITHINGS ACTIVITY RESPONSE", JSON.stringify({
-    httpStatus: response.status,
-    apiStatus: data?.status,
-    activitiesCount: data?.body?.activities?.length || 0
-  }));
+  console.log(
+    "WITHINGS ACTIVITY RESPONSE",
+    JSON.stringify({
+      httpStatus: response.status,
+      apiStatus: data?.status,
+      activitiesCount: data?.body?.activities?.length || 0,
+    }),
+  );
 
   if (response.status === 401 || data.status === 401) {
     const refreshed = await refreshWithingsAccessToken();
@@ -361,17 +418,20 @@ async function fetchWithingsActivityByDate(date) {
     response = await fetch(url, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`
-      }
+        Authorization: `Bearer ${token}`,
+      },
     });
 
     data = await response.json();
 
-    console.log("WITHINGS ACTIVITY RESPONSE RETRY", JSON.stringify({
-      httpStatus: response.status,
-      apiStatus: data?.status,
-      activitiesCount: data?.body?.activities?.length || 0
-    }));
+    console.log(
+      "WITHINGS ACTIVITY RESPONSE RETRY",
+      JSON.stringify({
+        httpStatus: response.status,
+        apiStatus: data?.status,
+        activitiesCount: data?.body?.activities?.length || 0,
+      }),
+    );
   }
 
   if (!response.ok) {
@@ -412,14 +472,15 @@ function parseLatestWithingsDailyActivity(data, fallbackDate) {
     timezone: activity.timezone || null,
     deviceModel: activity.model || null,
     steps: activity.steps != null ? Number(activity.steps) : null,
-    distanceKm: activity.distance != null ? Number(activity.distance) / 1000 : null,
+    distanceKm:
+      activity.distance != null ? Number(activity.distance) / 1000 : null,
     calories: activeCalories,
     totalCalories,
     soft,
     moderate,
     intense,
     elevationM: activity.elevation != null ? Number(activity.elevation) : null,
-    rawActivity: activity
+    rawActivity: activity,
   };
 }
 
@@ -431,5 +492,5 @@ module.exports = {
   fetchWithingsMeasuresByRange,
   fetchWithingsActivityByDate,
   parseLatestWithingsDailyActivity,
-  parseWithingsWebhookPayload
+  parseWithingsWebhookPayload,
 };
