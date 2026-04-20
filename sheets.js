@@ -92,6 +92,7 @@ function calculateBmrKatch({ weightKg, bodyFatPercent }) {
 const AVG_STEP_LENGTH_M = 0.6;
 const WALKING_KCAL_PER_KM = 71;
 const RESIDUAL_STEPS_KCAL_PER_KM = 55;
+const DEFAULT_BIKE_CADENCE_RPM = 60;
 
 const KCAL_PER_KG = 7700;
 
@@ -687,34 +688,61 @@ function buildNormalizedActivityEntries(activityRows) {
     (entry) => entry.source === "withings" && entry.activityType === "steps",
   );
 
-  const komootStepActivities = normalizedActivities.filter(
+  const komootWalkHikeActivities = normalizedActivities.filter(
     (entry) =>
       entry.source === "komoot" &&
       (entry.activityType === "hike" || entry.activityType === "walk"),
   );
 
-  const rawEstimatedKomootSteps = Math.round(
-    komootStepActivities.reduce(
+  const komootBikeActivities = normalizedActivities.filter(
+    (entry) => entry.source === "komoot" && entry.activityType === "bike",
+  );
+
+  const rawEstimatedKomootWalkHikeSteps = Math.round(
+    komootWalkHikeActivities.reduce(
       (sum, entry) => sum + (entry.distanceKm * 1000) / AVG_STEP_LENGTH_M,
       0,
     ),
   );
 
-  const estimatedKomootSteps = withingsStepsEntry
-    ? Math.min(withingsStepsEntry.steps, rawEstimatedKomootSteps)
-    : rawEstimatedKomootSteps;
+  const rawEstimatedKomootBikeSteps = Math.round(
+    komootBikeActivities.reduce(
+      (sum, entry) => sum + entry.durationMin * DEFAULT_BIKE_CADENCE_RPM * 2,
+      0,
+    ),
+  );
+
+  const rawEstimatedKomootOverlapSteps =
+    rawEstimatedKomootWalkHikeSteps + rawEstimatedKomootBikeSteps;
+
+  const estimatedKomootOverlapSteps = withingsStepsEntry
+    ? Math.min(withingsStepsEntry.steps, rawEstimatedKomootOverlapSteps)
+    : rawEstimatedKomootOverlapSteps;
 
   let residualWithingsCalories = null;
 
   if (withingsStepsEntry) {
     const residualWithingsSteps = Math.max(
       0,
-      withingsStepsEntry.steps - estimatedKomootSteps,
+      withingsStepsEntry.steps - estimatedKomootOverlapSteps,
     );
     const residualWithingsKm =
       (residualWithingsSteps * AVG_STEP_LENGTH_M) / 1000;
     residualWithingsCalories = Math.round(
       residualWithingsKm * RESIDUAL_STEPS_KCAL_PER_KM,
+    );
+
+    console.log(
+      "WITHINGS STEPS OVERLAP ADJUSTMENT",
+      JSON.stringify({
+        withingsSteps: withingsStepsEntry.steps,
+        estimatedWalkHikeSteps: rawEstimatedKomootWalkHikeSteps,
+        estimatedBikeSteps: rawEstimatedKomootBikeSteps,
+        estimatedOverlapSteps: estimatedKomootOverlapSteps,
+        residualWithingsSteps,
+        residualWithingsCalories,
+        bikeCadenceRpm: DEFAULT_BIKE_CADENCE_RPM,
+      }),
     );
   }
 

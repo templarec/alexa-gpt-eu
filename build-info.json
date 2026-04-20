@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "2a2fd4d8412f6c835161f65e6dfb76453589bb36",
-  "gitShortCommit": "2a2fd4d",
-  "gitCommitMessage": "feat: async processing for Withings webhook to avoid timeout",
+  "gitCommit": "68e5a0c1c7c2e27af2e30951ad2e4ead62611609",
+  "gitShortCommit": "68e5a0c",
+  "gitCommitMessage": "fix: komoot bike calories count",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-20T10:30:26.594Z"
+  "deployedAt": "2026-04-20T10:44:48.579Z"
 }
