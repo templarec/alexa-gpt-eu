@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "7f115e5c1158ba8d55c4d1e2dfc05af145cd26e7",
-  "gitShortCommit": "7f115e5",
-  "gitCommitMessage": "fix: version build",
+  "gitCommit": "2a2fd4d8412f6c835161f65e6dfb76453589bb36",
+  "gitShortCommit": "2a2fd4d",
+  "gitCommitMessage": "feat: async processing for Withings webhook to avoid timeout",
   "gitBranch": "main",
   "gitTag": null,
-  "gitDirty": false,
-  "deployedAt": "2026-04-19T14:36:44.966Z"
+  "gitDirty": true,
+  "deployedAt": "2026-04-20T10:30:26.594Z"
 }
