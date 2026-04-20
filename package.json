@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@aws-sdk/client-lambda": "^3.1032.0",
     "ask-sdk-core": "^2.14.0",
     "dotenv": "^17.4.2",
     "googleapis": "^137.0.0"

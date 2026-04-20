@@ -61,6 +61,126 @@ function getAwsRuntimeInfo() {
   };
 }
 
+async function invokeInternalWithingsWebhook(payload) {
+  const { LambdaClient, InvokeCommand } = require("@aws-sdk/client-lambda");
+
+  const client = new LambdaClient({
+    region: process.env.AWS_REGION || "eu-west-1",
+  });
+
+  const command = new InvokeCommand({
+    FunctionName: process.env.AWS_LAMBDA_FUNCTION_NAME,
+    InvocationType: "Event",
+    Payload: Buffer.from(
+      JSON.stringify({
+        internalType: "withings_webhook_process",
+        payload,
+      }),
+    ),
+  });
+
+  await client.send(command);
+}
+
+async function processWithingsWebhookAsync(payload) {
+  // BODY MEASUREMENTS (weight, fat etc.)
+  if (payload.appli === 1) {
+    console.log(
+      "WITHINGS WEIGHT EVENT",
+      JSON.stringify({
+        startdate: payload.startdate,
+        enddate: payload.enddate,
+      }),
+    );
+    if (!payload.startdate || !payload.enddate) {
+      return { ok: true, ignored: true };
+    }
+
+    const raw = await fetchWithingsMeasuresByRange(
+      payload.startdate,
+      payload.enddate,
+    );
+
+    const measures = parseAllWithingsMetrics(raw);
+    console.log("WITHINGS WEIGHT MEASURES COUNT", measures.length);
+
+    let inserted = 0;
+
+    for (const m of measures) {
+      const measureDate = new Date(m.sourceDate * 1000);
+      const date = measureDate.toISOString().slice(0, 10);
+      const time = measureDate.toTimeString().slice(0, 5);
+
+      await appendBodyRow([
+        date,
+        time,
+        "withings",
+        m.weight,
+        m.bodyFat ?? "",
+        m.muscleMass ?? "",
+        m.waterMass ?? "",
+        m.fatMass ?? "",
+        m.leanMass ?? "",
+        JSON.stringify(m.rawGroup),
+      ]);
+
+      inserted++;
+    }
+
+    return {
+      success: true,
+      imported: inserted,
+    };
+  }
+
+  // ACTIVITY (steps, distance etc.)
+  if (payload.appli === 16 && payload.date) {
+    console.log(
+      "WITHINGS ACTIVITY EVENT",
+      JSON.stringify({ date: payload.date }),
+    );
+    const raw = await fetchWithingsActivityByDate(payload.date);
+    const activity = parseLatestWithingsDailyActivity(raw, payload.date);
+
+    if (!activity) {
+      return { ok: true, ignored: true };
+    }
+
+    await createActivityFromHttp(
+      {
+        body: JSON.stringify({
+          source: "withings",
+          activity_type: "steps",
+          description: "withings daily steps",
+          activity_date: activity.activityDate,
+          steps: activity.steps,
+          distance_km: activity.distanceKm,
+          duration_min: null,
+          avg_speed_kmh: null,
+          calories: activity.calories,
+          total_calories: activity.totalCalories,
+          elevation_m: activity.elevationM,
+          soft_minutes: activity.soft,
+          moderate_minutes: activity.moderate,
+          intense_minutes: activity.intense,
+          device_model: activity.deviceModel,
+          timezone: activity.timezone,
+          source_id: activity.sourceId,
+          source_url: activity.sourceUrl,
+        }),
+      },
+      { date: activity.activityDate, time: "00:00" },
+    );
+
+    return {
+      success: true,
+      imported: 1,
+    };
+  }
+
+  return { ok: true, ignored: true };
+}
+
 function buildMealHandler(intentName, mealType) {
   return {
     canHandle(handlerInput) {
@@ -396,102 +516,27 @@ async function httpHandler(event) {
       return jsonResponse(200, { ok: true, ignored: true });
     }
 
-    // BODY MEASUREMENTS (weight, fat etc.)
-    if (payload.appli === 1) {
+    try {
+      await invokeInternalWithingsWebhook(payload);
       console.log(
-        "WITHINGS WEIGHT EVENT",
+        "WITHINGS WEBHOOK ENQUEUED",
+        JSON.stringify({ appli: payload.appli, date: payload.date ?? null }),
+      );
+      return jsonResponse(200, { ok: true, queued: true });
+    } catch (error) {
+      console.error(
+        "WITHINGS WEBHOOK ENQUEUE FAILED",
         JSON.stringify({
-          startdate: payload.startdate,
-          enddate: payload.enddate,
+          message: String(error?.message || error),
+          appli: payload?.appli ?? null,
+          date: payload?.date ?? null,
         }),
       );
-      if (!payload.startdate || !payload.enddate) {
-        return jsonResponse(200, { ok: true, ignored: true });
-      }
-
-      const raw = await fetchWithingsMeasuresByRange(
-        payload.startdate,
-        payload.enddate,
-      );
-
-      const measures = parseAllWithingsMetrics(raw);
-      console.log("WITHINGS WEIGHT MEASURES COUNT", measures.length);
-
-      let inserted = 0;
-
-      for (const m of measures) {
-        const measureDate = new Date(m.sourceDate * 1000);
-        const date = measureDate.toISOString().slice(0, 10);
-        const time = measureDate.toTimeString().slice(0, 5);
-
-        await appendBodyRow([
-          date,
-          time,
-          "withings",
-          m.weight,
-          m.bodyFat ?? "",
-          m.muscleMass ?? "",
-          m.waterMass ?? "",
-          m.fatMass ?? "",
-          m.leanMass ?? "",
-          JSON.stringify(m.rawGroup),
-        ]);
-
-        inserted++;
-      }
-
-      return jsonResponse(200, {
-        success: true,
-        imported: inserted,
+      return jsonResponse(500, {
+        ok: false,
+        error: "withings_webhook_enqueue_failed",
       });
     }
-
-    // ACTIVITY (steps, distance etc.)
-    if (payload.appli === 16 && payload.date) {
-      console.log(
-        "WITHINGS ACTIVITY EVENT",
-        JSON.stringify({ date: payload.date }),
-      );
-      const raw = await fetchWithingsActivityByDate(payload.date);
-      const activity = parseLatestWithingsDailyActivity(raw, payload.date);
-
-      if (!activity) {
-        return jsonResponse(200, { ok: true, ignored: true });
-      }
-
-      await createActivityFromHttp(
-        {
-          body: JSON.stringify({
-            source: "withings",
-            activity_type: "steps",
-            description: "withings daily steps",
-            activity_date: activity.activityDate,
-            steps: activity.steps,
-            distance_km: activity.distanceKm,
-            duration_min: null,
-            avg_speed_kmh: null,
-            calories: activity.calories,
-            total_calories: activity.totalCalories,
-            elevation_m: activity.elevationM,
-            soft_minutes: activity.soft,
-            moderate_minutes: activity.moderate,
-            intense_minutes: activity.intense,
-            device_model: activity.deviceModel,
-            timezone: activity.timezone,
-            source_id: activity.sourceId,
-            source_url: activity.sourceUrl,
-          }),
-        },
-        { date: activity.activityDate, time: "00:00" },
-      );
-
-      return jsonResponse(200, {
-        success: true,
-        imported: 1,
-      });
-    }
-
-    return jsonResponse(200, { ok: true, ignored: true });
   }
 
   // Protect all HTTP routes except the Withings webhook
@@ -674,6 +719,34 @@ const skill = Alexa.SkillBuilders.custom()
   .create();
 
 exports.handler = async (event, context) => {
+  if (event?.internalType === "withings_webhook_process") {
+    console.log(
+      "WITHINGS INTERNAL PROCESS START",
+      JSON.stringify({
+        appli: event?.payload?.appli ?? null,
+        date: event?.payload?.date ?? null,
+      }),
+    );
+
+    try {
+      const result = await processWithingsWebhookAsync(event.payload || {});
+      console.log(
+        "WITHINGS INTERNAL PROCESS DONE",
+        JSON.stringify(result || {}),
+      );
+      return result;
+    } catch (error) {
+      console.error(
+        "WITHINGS INTERNAL PROCESS FAILED",
+        JSON.stringify({
+          message: String(error?.message || error),
+          stack: error?.stack || null,
+        }),
+      );
+      throw error;
+    }
+  }
+
   if (event?.requestContext?.http) {
     return httpHandler(event);
   }
