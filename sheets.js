@@ -1168,24 +1168,21 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
 
   const activities = buildNormalizedActivityEntries(activityRows);
 
-  const allEntries = [...meals, ...activities];
-
   let intake = 0;
   let activity = 0;
   let protein = 0;
   let carbs = 0;
   let fat = 0;
 
-  for (const meal of allEntries) {
-    if (meal.calories >= 0) {
-      intake += meal.calories;
-    } else {
-      activity += meal.calories;
-    }
-
+  for (const meal of meals) {
+    intake += meal.calories;
     protein += meal.protein;
     carbs += meal.carbs;
     fat += meal.fat;
+  }
+
+  for (const entry of activities) {
+    activity += entry.calories;
   }
 
   intake = roundNumber(intake, 0);
