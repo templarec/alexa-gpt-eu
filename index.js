@@ -2,7 +2,12 @@ const fs = require("fs");
 const path = require("path");
 const Alexa = require("ask-sdk-core");
 const { askChat, analyzeMeal } = require("./openai");
-const { appendMealRow, appendBodyRow, getLastBodyRow } = require("./sheets");
+const {
+  appendMealRow,
+  appendBodyRow,
+  getLastBodyRow,
+  getTodayDietReport,
+} = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
 const { TIMEZONE, DAILY_TARGET } = require("./config");
@@ -235,9 +240,23 @@ function buildMealHandler(intentName, mealType) {
             { date, time },
           );
 
+          const activityReport = await getTodayDietReport(date, DAILY_TARGET);
+          const activityRemaining = Number(
+            activityReport?.summary?.remaining ?? 0,
+          );
+
+          let activityRemainingSpeech;
+
+          if (activityRemaining > 0) {
+            activityRemainingSpeech = ` Ti restano circa ${Math.round(activityRemaining)} calorie oggi.`;
+          } else {
+            activityRemainingSpeech = ` Hai superato il target di circa ${Math.abs(Math.round(activityRemaining))} calorie.`;
+          }
+
           let speechText =
             "Ho registrato l'attività. " +
-            `${Number(analysis.total?.calories || 0)} calorie.`;
+            `${Number(analysis.total?.calories || 0)} calorie.` +
+            activityRemainingSpeech;
 
           if (analysis.missing_quantities) {
             speechText +=
@@ -263,8 +282,8 @@ function buildMealHandler(intentName, mealType) {
           Number(analysis.total.fat || 0),
         ]);
 
-        const target = DAILY_TARGET;
-        const remaining = target - Number(analysis.total.calories || 0);
+        const mealReport = await getTodayDietReport(date, DAILY_TARGET);
+        const remaining = Number(mealReport?.summary?.remaining ?? 0);
 
         let remainingSpeech;
 
