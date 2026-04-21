@@ -2,12 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const Alexa = require("ask-sdk-core");
 const { askChat, analyzeMeal } = require("./openai");
-const {
-  appendMealRow,
-  appendBodyRow,
-  getTodayRunningTotal,
-  getLastBodyRow,
-} = require("./sheets");
+const { appendMealRow, appendBodyRow, getLastBodyRow } = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
 const { TIMEZONE, DAILY_TARGET } = require("./config");
@@ -217,8 +212,45 @@ function buildMealHandler(intentName, mealType) {
         const analysis = await analyzeMeal(mealType, mealText);
         const { date, time } = getDateTimeParts(TIMEZONE);
 
-        const previousTotal = await getTodayRunningTotal(date);
-        const newTotal = previousTotal + Number(analysis.total.calories || 0);
+        if (mealType === "attivita") {
+          const activityPayload = {
+            source: "alexa",
+            activity_type: analysis.activity_type || "manual",
+            description:
+              analysis.description_normalized ||
+              analysis.description ||
+              mealText,
+            activity_date: date,
+            calories: Number(analysis.total?.calories || 0),
+            distance_km: Number(analysis.total?.distance_km || 0) || null,
+            duration_min: Number(analysis.total?.duration_min || 0) || null,
+            steps: Number(analysis.total?.steps || 0) || null,
+            avg_speed_kmh: Number(analysis.total?.avg_speed_kmh || 0) || null,
+            source_id: null,
+            source_url: null,
+          };
+
+          await createActivityFromHttp(
+            { body: JSON.stringify(activityPayload) },
+            { date, time },
+          );
+
+          let speechText =
+            "Ho registrato l'attività. " +
+            `${Number(analysis.total?.calories || 0)} calorie.`;
+
+          if (analysis.missing_quantities) {
+            speechText +=
+              " Attenzione: mancavano alcuni dettagli, quindi il calcolo è più approssimativo.";
+          }
+
+          return handlerInput.responseBuilder
+            .speak(speechText)
+            .reprompt(
+              "Puoi registrare un altro pasto oppure chiedermi il riepilogo di oggi.",
+            )
+            .getResponse();
+        }
 
         await appendMealRow([
           date,
@@ -232,7 +264,7 @@ function buildMealHandler(intentName, mealType) {
         ]);
 
         const target = DAILY_TARGET;
-        const remaining = target - newTotal;
+        const remaining = target - Number(analysis.total.calories || 0);
 
         let remainingSpeech;
 
@@ -243,9 +275,8 @@ function buildMealHandler(intentName, mealType) {
         }
 
         let speechText =
-          `${mealType === "attivita" ? "Ho registrato l'attività. " : `Ho registrato la ${mealType}. `}` +
+          `Ho registrato la ${mealType}. ` +
           `${Number(analysis.total.calories || 0)} calorie. ` +
-          `Totale di oggi: ${newTotal}. ` +
           remainingSpeech;
 
         if (analysis.missing_quantities) {
@@ -262,7 +293,10 @@ function buildMealHandler(intentName, mealType) {
       } catch (error) {
         console.error(`Errore ${intentName}:`, error);
 
-        let speechText = "C'è stato un problema nel registrare il pasto.";
+        let speechText =
+          mealType === "attivita"
+            ? "C'è stato un problema nel registrare l'attività."
+            : "C'è stato un problema nel registrare il pasto.";
 
         if (String(error.message).includes("insufficient_quota")) {
           speechText =
@@ -271,7 +305,7 @@ function buildMealHandler(intentName, mealType) {
 
         return handlerInput.responseBuilder
           .speak(speechText)
-          .reprompt("Riprova dicendo il pasto con quantità più chiare.")
+          .reprompt("Riprova con quantità o dettagli più chiari.")
           .getResponse();
       }
     },
