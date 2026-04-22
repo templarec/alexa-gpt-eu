@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "c4593c19533ef1c3241efc5fbbb96c94608198d9",
-  "gitShortCommit": "c4593c1",
-  "gitCommitMessage": "fix: negative meal corrections counted as activity",
+  "gitCommit": "3beac82646640af37b73fcf260e351d99f575f91",
+  "gitShortCommit": "3beac82",
+  "gitCommitMessage": "fix: adaptive tdee exclude today date",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-21T05:44:04.979Z"
+  "deployedAt": "2026-04-22T05:16:08.485Z"
 }

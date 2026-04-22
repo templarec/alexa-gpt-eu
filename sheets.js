@@ -874,7 +874,13 @@ async function getAdaptiveTdeeLast14Days(endDateString) {
     0,
   );
 
-  const averageDailyNet = (totalMealIntake + totalActivity) / 14;
+  const daysCovered = coveredMealDates.size;
+
+  if (!daysCovered || daysCovered < 7) {
+    return null;
+  }
+
+  const averageDailyNet = (totalMealIntake + totalActivity) / daysCovered;
   const impliedDailyDeficit =
     ((firstWeight - lastWeight) * KCAL_PER_KG) / daysSpan;
   const adaptiveTdee = averageDailyNet + impliedDailyDeficit;
