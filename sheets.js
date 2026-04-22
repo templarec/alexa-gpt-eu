@@ -1,4 +1,16 @@
 const { google } = require("googleapis");
+const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
+
+const {
+  buildNormalizedActivityEntries,
+} = require("./utils/activity-normalizer");
+
+const {
+  getAverageWeightLast7Days,
+  getAverageBodyFatLast7Days,
+  getAdaptiveTdeeLast14Days,
+  getDynamicTdee,
+} = require("./utils/tdee");
 
 let sheetsClientPromise = null;
 
@@ -30,122 +42,6 @@ function isCacheValid(entry) {
 function setCache(entry, value) {
   entry.value = value;
   entry.expiresAt = Date.now() + CACHE_TTL_MS;
-}
-
-function parseSheetNumber(value) {
-  if (value == null || value === "") {
-    return 0;
-  }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-
-  const normalized = String(value).trim().replace(/\./g, "").replace(",", ".");
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function roundNumber(value, decimals = 0) {
-  const factor = 10 ** decimals;
-  return Math.round(Number(value || 0) * factor) / factor;
-}
-
-function calculateBmrMifflin({ weightKg, heightCm, age, sex }) {
-  const weight = Number(weightKg || 0);
-  const height = Number(heightCm || 0);
-  const ageNum = Number(age || 0);
-  const normalizedSex = String(sex || "")
-    .trim()
-    .toLowerCase();
-
-  if (!weight || !height || !ageNum) {
-    return null;
-  }
-
-  if (normalizedSex === "female" || normalizedSex === "f") {
-    return 10 * weight + 6.25 * height - 5 * ageNum - 161;
-  }
-
-  return 10 * weight + 6.25 * height - 5 * ageNum + 5;
-}
-
-function calculateBmrKatch({ weightKg, bodyFatPercent }) {
-  const weight = Number(weightKg || 0);
-  const bf = Number(bodyFatPercent || 0);
-
-  if (!weight || !bf) {
-    return null;
-  }
-
-  const bodyFatRatio = bf / 100;
-  const leanMass = weight * (1 - bodyFatRatio);
-
-  if (!leanMass || !Number.isFinite(leanMass)) {
-    return null;
-  }
-
-  return 370 + 21.6 * leanMass;
-}
-
-const AVG_STEP_LENGTH_M = 0.6;
-const WALKING_KCAL_PER_KM = 71;
-const RESIDUAL_STEPS_KCAL_PER_KM = 55;
-const DEFAULT_BIKE_CADENCE_RPM = 60;
-
-const KCAL_PER_KG = 7700;
-
-function parseIsoDate(dateString) {
-  const value = String(dateString || "").trim();
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return null;
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
-}
-
-function formatIsoDate(date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function getLastNDatesInclusive(endDateString, daysCount, options = {}) {
-  const endDate = parseIsoDate(endDateString);
-
-  if (!endDate || !daysCount || daysCount < 1) {
-    return [];
-  }
-
-  const includeEndDate = options.includeEndDate !== false;
-  const effectiveEndDate = new Date(endDate);
-
-  if (!includeEndDate) {
-    effectiveEndDate.setUTCDate(effectiveEndDate.getUTCDate() - 1);
-  }
-
-  const dates = [];
-
-  for (let i = daysCount - 1; i >= 0; i--) {
-    const current = new Date(effectiveEndDate);
-    current.setUTCDate(current.getUTCDate() - i);
-    dates.push(formatIsoDate(current));
-  }
-
-  return dates;
-}
-
-function getDiffDays(startDateString, endDateString) {
-  const start = parseIsoDate(startDateString);
-  const end = parseIsoDate(endDateString);
-
-  if (!start || !end) {
-    return 0;
-  }
-
-  const diffMs = end.getTime() - start.getTime();
-  return Math.round(diffMs / (24 * 60 * 60 * 1000));
 }
 
 function getGoogleCredentials() {
@@ -462,438 +358,6 @@ async function getLatestWeight() {
   }
 
   return Number(last.weight);
-}
-
-async function getAverageWeightLast7Days(todayDate = null) {
-  const sheets = await getSheetsClient();
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SHEET_ID,
-    range: "Body!A:J",
-  });
-
-  const rows = response.data.values || [];
-
-  if (rows.length <= 1) {
-    return null;
-  }
-
-  const endDateString = todayDate || new Date().toISOString().slice(0, 10);
-  const last7Dates = getLastNDatesInclusive(endDateString, 7);
-  const allowedDates = new Set(last7Dates);
-
-  if (allowedDates.size === 0) {
-    return null;
-  }
-
-  const dailyWeights = new Map();
-
-  for (const row of rows.slice(1)) {
-    const date = String(row[0] || "").trim();
-    const weight = parseSheetNumber(row[3]);
-
-    if (!date || !weight || !allowedDates.has(date)) {
-      continue;
-    }
-
-    dailyWeights.set(date, weight);
-  }
-
-  const weights = [...dailyWeights.values()].filter(
-    (value) => Number.isFinite(value) && value > 0,
-  );
-
-  if (weights.length === 0) {
-    return null;
-  }
-
-  const average =
-    weights.reduce((sum, value) => sum + value, 0) / weights.length;
-  return roundNumber(average, 2);
-}
-
-async function getAverageBodyFatLast7Days(todayDate = null) {
-  const sheets = await getSheetsClient();
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SHEET_ID,
-    range: "Body!A:J",
-  });
-
-  const rows = response.data.values || [];
-
-  if (rows.length <= 1) {
-    return null;
-  }
-
-  const endDateString = todayDate || new Date().toISOString().slice(0, 10);
-  const last7Dates = getLastNDatesInclusive(endDateString, 7);
-  const allowedDates = new Set(last7Dates);
-
-  if (allowedDates.size === 0) {
-    return null;
-  }
-
-  const dailyBodyFat = new Map();
-
-  for (const row of rows.slice(1)) {
-    const date = String(row[0] || "").trim();
-    const bodyFat = parseSheetNumber(row[4]);
-
-    if (!date || !bodyFat || !allowedDates.has(date)) {
-      continue;
-    }
-
-    dailyBodyFat.set(date, bodyFat);
-  }
-
-  const bodyFatValues = [...dailyBodyFat.values()].filter(
-    (value) => Number.isFinite(value) && value > 0,
-  );
-
-  if (bodyFatValues.length === 0) {
-    return null;
-  }
-
-  const average =
-    bodyFatValues.reduce((sum, value) => sum + value, 0) / bodyFatValues.length;
-  return roundNumber(average, 2);
-}
-
-async function getDynamicTdee(todayActivityKcal = 0, todayDate = null) {
-  const averageWeightLast7Days = await getAverageWeightLast7Days(todayDate);
-
-  const sex =
-    (await getConfigValue("user_sex")) || process.env.USER_SEX || "male";
-  const age =
-    Number(await getConfigValue("user_age")) ||
-    Number(process.env.USER_AGE) ||
-    31;
-  const heightCm =
-    Number(await getConfigValue("user_height_cm")) ||
-    Number(process.env.USER_HEIGHT_CM) ||
-    181;
-  const baseActivityFactor =
-    Number(await getConfigValue("base_activity_factor")) ||
-    Number(process.env.BASE_ACTIVITY_FACTOR) ||
-    1.2;
-
-  const fallbackWeight = Number(process.env.USER_WEIGHT_KG || 95);
-  const weightKg = Number(averageWeightLast7Days || fallbackWeight);
-
-  const bmrMifflin = calculateBmrMifflin({
-    weightKg,
-    heightCm,
-    age,
-    sex,
-  });
-
-  const bodyFatPercent = await getAverageBodyFatLast7Days(todayDate);
-
-  const bmrKatch = calculateBmrKatch({
-    weightKg,
-    bodyFatPercent,
-  });
-
-  let bmr = null;
-
-  if (bmrMifflin && bmrKatch) {
-    bmr = (bmrMifflin + bmrKatch) / 2;
-  } else {
-    bmr = bmrMifflin || bmrKatch;
-  }
-
-  if (!bmr) {
-    return null;
-  }
-
-  const baseTdee = bmr * baseActivityFactor;
-  const extraActivity = Math.abs(Number(todayActivityKcal || 0));
-  const formulaTdee = roundNumber(baseTdee + extraActivity, 0);
-
-  if (!todayDate) {
-    return {
-      formulaTdee,
-      adaptiveTdee: null,
-      finalTdee: formulaTdee,
-    };
-  }
-
-  const adaptiveTdee = await getAdaptiveTdeeLast14Days(todayDate);
-
-  if (!adaptiveTdee) {
-    console.log(
-      "TDEE CALCULATION",
-      JSON.stringify({
-        todayDate,
-        weightKg,
-        bodyFatPercent,
-        bmrMifflin: roundNumber(bmrMifflin, 0),
-        bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
-        bmr: roundNumber(bmr, 0),
-        baseActivityFactor,
-        extraActivity,
-        formulaTdee,
-        adaptiveTdee: null,
-        finalTdee: formulaTdee,
-        model: "formula_only",
-      }),
-    );
-
-    return {
-      formulaTdee,
-      adaptiveTdee: null,
-      finalTdee: formulaTdee,
-    };
-  }
-
-  const finalTdee = roundNumber((formulaTdee + adaptiveTdee) / 2, 0);
-
-  console.log(
-    "TDEE CALCULATION",
-    JSON.stringify({
-      todayDate,
-      weightKg,
-      bodyFatPercent,
-      bmrMifflin: roundNumber(bmrMifflin, 0),
-      bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
-      bmr: roundNumber(bmr, 0),
-      baseActivityFactor,
-      extraActivity,
-      formulaTdee,
-      adaptiveTdee,
-      finalTdee,
-      model: "blended",
-    }),
-  );
-
-  return {
-    formulaTdee,
-    adaptiveTdee,
-    finalTdee,
-  };
-}
-
-function buildNormalizedActivityEntries(activityRows) {
-  const normalizedActivities = activityRows.map((row) => ({
-    date: row[0] || "",
-    time: row[1] || "",
-    source: String(row[2] || "")
-      .trim()
-      .toLowerCase(),
-    activityType: String(row[3] || "")
-      .trim()
-      .toLowerCase(),
-    description: row[4] || "",
-    rawCalories: parseSheetNumber(row[5]),
-    distanceKm: parseSheetNumber(row[6]),
-    durationMin: parseSheetNumber(row[7]),
-    steps: parseSheetNumber(row[8]),
-  }));
-
-  const withingsStepsEntry = normalizedActivities.find(
-    (entry) => entry.source === "withings" && entry.activityType === "steps",
-  );
-
-  const komootWalkHikeActivities = normalizedActivities.filter(
-    (entry) =>
-      entry.source === "komoot" &&
-      (entry.activityType === "hike" || entry.activityType === "walk"),
-  );
-
-  const komootBikeActivities = normalizedActivities.filter(
-    (entry) => entry.source === "komoot" && entry.activityType === "bike",
-  );
-
-  const rawEstimatedKomootWalkHikeSteps = Math.round(
-    komootWalkHikeActivities.reduce(
-      (sum, entry) => sum + (entry.distanceKm * 1000) / AVG_STEP_LENGTH_M,
-      0,
-    ),
-  );
-
-  const rawEstimatedKomootBikeSteps = Math.round(
-    komootBikeActivities.reduce(
-      (sum, entry) => sum + entry.durationMin * DEFAULT_BIKE_CADENCE_RPM * 2,
-      0,
-    ),
-  );
-
-  const rawEstimatedKomootOverlapSteps =
-    rawEstimatedKomootWalkHikeSteps + rawEstimatedKomootBikeSteps;
-
-  const estimatedKomootOverlapSteps = withingsStepsEntry
-    ? Math.min(withingsStepsEntry.steps, rawEstimatedKomootOverlapSteps)
-    : rawEstimatedKomootOverlapSteps;
-
-  let residualWithingsCalories = null;
-
-  if (withingsStepsEntry) {
-    const residualWithingsSteps = Math.max(
-      0,
-      withingsStepsEntry.steps - estimatedKomootOverlapSteps,
-    );
-    const residualWithingsKm =
-      (residualWithingsSteps * AVG_STEP_LENGTH_M) / 1000;
-    residualWithingsCalories = Math.round(
-      residualWithingsKm * RESIDUAL_STEPS_KCAL_PER_KM,
-    );
-
-    console.log(
-      "WITHINGS STEPS OVERLAP ADJUSTMENT",
-      JSON.stringify({
-        withingsSteps: withingsStepsEntry.steps,
-        estimatedWalkHikeSteps: rawEstimatedKomootWalkHikeSteps,
-        estimatedBikeSteps: rawEstimatedKomootBikeSteps,
-        estimatedOverlapSteps: estimatedKomootOverlapSteps,
-        residualWithingsSteps,
-        residualWithingsCalories,
-        bikeCadenceRpm: DEFAULT_BIKE_CADENCE_RPM,
-      }),
-    );
-  }
-
-  return normalizedActivities.map((entry) => {
-    let rawCalories = entry.rawCalories;
-
-    if (
-      withingsStepsEntry &&
-      entry.source === "withings" &&
-      entry.activityType === "steps"
-    ) {
-      rawCalories =
-        residualWithingsCalories == null
-          ? rawCalories
-          : residualWithingsCalories;
-    }
-
-    return {
-      date: entry.date,
-      time: entry.time,
-      meal_type: "attivita",
-      description: entry.description,
-      calories: rawCalories > 0 ? -rawCalories : rawCalories,
-      protein: 0,
-      carbs: 0,
-      fat: 0,
-      running_total: 0,
-    };
-  });
-}
-
-async function getAdaptiveTdeeLast14Days(endDateString) {
-  const sheets = await getSheetsClient();
-  const last14Dates = getLastNDatesInclusive(endDateString, 14, {
-    includeEndDate: false,
-  });
-
-  if (last14Dates.length === 0) {
-    return null;
-  }
-
-  const dateSet = new Set(last14Dates);
-
-  const [mealsResponse, activityResponse, bodyResponse] = await Promise.all([
-    sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SHEET_ID,
-      range: "Meals!A:H",
-    }),
-    sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SHEET_ID,
-      range: "activity!A:M",
-    }),
-    sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SHEET_ID,
-      range: "Body!A:J",
-    }),
-  ]);
-
-  const mealRows = (mealsResponse.data.values || [])
-    .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
-
-  const activityRows = (activityResponse.data.values || [])
-    .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
-
-  const bodyRows = (bodyResponse.data.values || [])
-    .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
-
-  const dailyWeights = new Map();
-
-  for (const row of bodyRows) {
-    const date = String(row[0] || "").trim();
-    const weight = parseSheetNumber(row[3]);
-
-    if (!date || !weight) {
-      continue;
-    }
-
-    dailyWeights.set(date, weight);
-  }
-
-  const weightDates = [...dailyWeights.keys()].sort();
-
-  if (weightDates.length < 2) {
-    return null;
-  }
-
-  if (mealRows.length === 0) {
-    return null;
-  }
-
-  const coveredMealDates = new Set(
-    mealRows.map((row) => String(row[0] || "").trim()).filter(Boolean),
-  );
-
-  if (coveredMealDates.size < 7) {
-    return null;
-  }
-
-  const firstWeightDate = weightDates[0];
-  const lastWeightDate = weightDates[weightDates.length - 1];
-
-  const firstWeight = Number(dailyWeights.get(firstWeightDate));
-  const lastWeight = Number(dailyWeights.get(lastWeightDate));
-  const daysSpan = getDiffDays(firstWeightDate, lastWeightDate);
-
-  if (!firstWeight || !lastWeight || daysSpan < 3) {
-    return null;
-  }
-
-  const totalMealIntake = mealRows.reduce(
-    (sum, row) => sum + parseSheetNumber(row[4]),
-    0,
-  );
-
-  const normalizedActivities = buildNormalizedActivityEntries(activityRows);
-
-  const totalActivity = normalizedActivities.reduce(
-    (sum, entry) => sum + Number(entry.calories || 0),
-    0,
-  );
-
-  const daysCovered = coveredMealDates.size;
-
-  if (!daysCovered || daysCovered < 7) {
-    return null;
-  }
-
-  const averageDailyNet = (totalMealIntake + totalActivity) / daysCovered;
-  const impliedDailyDeficit =
-    ((firstWeight - lastWeight) * KCAL_PER_KG) / daysSpan;
-  const adaptiveTdee = averageDailyNet + impliedDailyDeficit;
-
-  if (
-    !Number.isFinite(adaptiveTdee) ||
-    adaptiveTdee < 1200 ||
-    adaptiveTdee > 5000
-  ) {
-    return null;
-  }
-
-  return roundNumber(adaptiveTdee, 0);
 }
 
 async function getConfigValue(key) {
@@ -1219,7 +683,18 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
   fat = roundNumber(fat, 1);
 
   const net = roundNumber(intake + activity, 0);
-  const tdeeData = await getDynamicTdee(activity, todayDate);
+  const tdeeData = await getDynamicTdee({
+    sheets: await getSheetsClient(),
+    spreadsheetId: process.env.SHEET_ID,
+    getConfigValue,
+    todayActivityKcal: activity,
+    todayDate,
+    fallbackWeightKg: Number(process.env.USER_WEIGHT_KG || 95),
+    fallbackSex: process.env.USER_SEX || "male",
+    fallbackAge: Number(process.env.USER_AGE) || 31,
+    fallbackHeightCm: Number(process.env.USER_HEIGHT_CM) || 181,
+    fallbackBaseActivityFactor: Number(process.env.BASE_ACTIVITY_FACTOR) || 1.2,
+  });
 
   const resolvedTdee =
     tdeeData?.finalTdee ?? roundNumber(targetCalories + 650, 0);
@@ -1245,8 +720,19 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
   };
 
   try {
-    const averageWeightLast7Days = await getAverageWeightLast7Days(todayDate);
-    const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(todayDate);
+    const sheets = await getSheetsClient();
+
+    const averageWeightLast7Days = await getAverageWeightLast7Days(
+      sheets,
+      process.env.SHEET_ID,
+      todayDate,
+    );
+
+    const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
+      sheets,
+      process.env.SHEET_ID,
+      todayDate,
+    );
 
     await saveDailyStatsSnapshot({
       date: todayDate,

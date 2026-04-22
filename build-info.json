@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "3beac82646640af37b73fcf260e351d99f575f91",
-  "gitShortCommit": "3beac82",
-  "gitCommitMessage": "fix: adaptive tdee exclude today date",
+  "gitCommit": "85d657ba9f6fe9d2e9a74e8015208d5d5db96799",
+  "gitShortCommit": "85d657b",
+  "gitCommitMessage": "fix: tdee less than 14 days",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-22T05:16:08.485Z"
+  "deployedAt": "2026-04-22T05:22:56.313Z"
 }
