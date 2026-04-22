@@ -111,17 +111,24 @@ function formatIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function getLastNDatesInclusive(endDateString, daysCount) {
+function getLastNDatesInclusive(endDateString, daysCount, options = {}) {
   const endDate = parseIsoDate(endDateString);
 
   if (!endDate || !daysCount || daysCount < 1) {
     return [];
   }
 
+  const includeEndDate = options.includeEndDate !== false;
+  const effectiveEndDate = new Date(endDate);
+
+  if (!includeEndDate) {
+    effectiveEndDate.setUTCDate(effectiveEndDate.getUTCDate() - 1);
+  }
+
   const dates = [];
 
   for (let i = daysCount - 1; i >= 0; i--) {
-    const current = new Date(endDate);
+    const current = new Date(effectiveEndDate);
     current.setUTCDate(current.getUTCDate() - i);
     dates.push(formatIsoDate(current));
   }
@@ -776,7 +783,9 @@ function buildNormalizedActivityEntries(activityRows) {
 
 async function getAdaptiveTdeeLast14Days(endDateString) {
   const sheets = await getSheetsClient();
-  const last14Dates = getLastNDatesInclusive(endDateString, 14);
+  const last14Dates = getLastNDatesInclusive(endDateString, 14, {
+    includeEndDate: false,
+  });
 
   if (last14Dates.length === 0) {
     return null;
@@ -827,6 +836,18 @@ async function getAdaptiveTdeeLast14Days(endDateString) {
   const weightDates = [...dailyWeights.keys()].sort();
 
   if (weightDates.length < 2) {
+    return null;
+  }
+
+  if (mealRows.length === 0) {
+    return null;
+  }
+
+  const coveredMealDates = new Set(
+    mealRows.map((row) => String(row[0] || "").trim()).filter(Boolean),
+  );
+
+  if (coveredMealDates.size < 7) {
     return null;
   }
 

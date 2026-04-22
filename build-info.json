@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "68e5a0c1c7c2e27af2e30951ad2e4ead62611609",
-  "gitShortCommit": "68e5a0c",
-  "gitCommitMessage": "fix: komoot bike calories count",
+  "gitCommit": "c4593c19533ef1c3241efc5fbbb96c94608198d9",
+  "gitShortCommit": "c4593c1",
+  "gitCommitMessage": "fix: negative meal corrections counted as activity",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-20T10:44:48.579Z"
+  "deployedAt": "2026-04-21T05:44:04.979Z"
 }
