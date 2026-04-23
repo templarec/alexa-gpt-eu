@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "d6ad2332bb8a2038bc154a78b7692ab849bb33f1",
-  "gitShortCommit": "d6ad233",
-  "gitCommitMessage": "feat: save kitchen in sheets",
+  "gitCommit": "b5e6f49478c354013ccec9fbe4ed7ca997e5160f",
+  "gitShortCommit": "b5e6f49",
+  "gitCommitMessage": "feat: web page",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-23T05:52:22.462Z"
+  "deployedAt": "2026-04-23T10:29:44.618Z"
 }

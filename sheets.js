@@ -698,7 +698,7 @@ async function getTodaySummary(todayDate) {
   };
 }
 
-async function getTodayDietReport(todayDate, targetCalories = 1750) {
+async function getTodayDietReport(todayDate, targetCalories = null) {
   const rows = await getTodayRows(todayDate);
   const activityRows = await getTodayActivityRows(todayDate);
 
@@ -747,6 +747,24 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
   fat = roundNumber(fat, 1);
 
   const net = roundNumber(intake + activity, 0);
+
+  const targetMode = String(
+    (await getConfigValue("diet_target_mode")) || "manual",
+  )
+    .trim()
+    .toLowerCase();
+
+  const manualTarget =
+    parseSheetNumber(await getConfigValue("diet_target_manual")) || 1750;
+
+  const deficitKcal =
+    parseSheetNumber(await getConfigValue("diet_deficit_kcal")) || 700;
+
+  const explicitTarget =
+    targetCalories == null || targetCalories === ""
+      ? null
+      : Number(targetCalories);
+
   const tdeeData = await getDynamicTdee({
     sheets: await getSheetsClient(),
     spreadsheetId: process.env.SHEET_ID,
@@ -761,8 +779,17 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
   });
 
   const resolvedTdee =
-    tdeeData?.finalTdee ?? roundNumber(targetCalories + 650, 0);
-  const remaining = roundNumber(targetCalories - net, 0);
+    tdeeData?.finalTdee ?? roundNumber(manualTarget + deficitKcal, 0);
+
+  let resolvedTarget = roundNumber(manualTarget, 0);
+
+  if (explicitTarget != null && Number.isFinite(explicitTarget)) {
+    resolvedTarget = roundNumber(explicitTarget, 0);
+  } else if (targetMode === "dynamic") {
+    resolvedTarget = roundNumber(resolvedTdee - deficitKcal, 0);
+  }
+
+  const remaining = roundNumber(resolvedTarget - net, 0);
   const deficit = roundNumber(resolvedTdee - net, 0);
 
   const summary = {
@@ -772,7 +799,7 @@ async function getTodayDietReport(todayDate, targetCalories = 1750) {
     protein,
     carbs,
     fat,
-    target: targetCalories,
+    target: resolvedTarget,
 
     tdee_formula: tdeeData?.formulaTdee ?? null,
 

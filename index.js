@@ -10,7 +10,7 @@ const {
 } = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
-const { TIMEZONE, DAILY_TARGET } = require("./config");
+const { TIMEZONE } = require("./config");
 const { authorizeHttpRequest, jsonResponse } = require("./utils/http");
 const { handleGetDietToday } = require("./handlers/http/diet");
 const { createActivityFromHttp } = require("./handlers/http/activity");
@@ -382,7 +382,7 @@ function buildMealHandler(intentName, mealType) {
             { date, time },
           );
 
-          const activityReport = await getTodayDietReport(date, DAILY_TARGET);
+          const activityReport = await getTodayDietReport(date);
           const activityRemaining = Number(
             activityReport?.summary?.remaining ?? 0,
           );
@@ -424,7 +424,7 @@ function buildMealHandler(intentName, mealType) {
           Number(analysis.total.fat || 0),
         ]);
 
-        const mealReport = await getTodayDietReport(date, DAILY_TARGET);
+        const mealReport = await getTodayDietReport(date);
         const remaining = Number(mealReport?.summary?.remaining ?? 0);
 
         let remainingSpeech;

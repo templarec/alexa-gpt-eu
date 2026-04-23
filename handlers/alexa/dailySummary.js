@@ -1,5 +1,5 @@
 const Alexa = require("ask-sdk-core");
-const { TIMEZONE, LORENZO_TDEE, DAILY_TARGET } = require("../../config");
+const { TIMEZONE, LORENZO_TDEE } = require("../../config");
 const { getTodayDietReport } = require("../../sheets");
 
 function getDateTimeParts(timeZone) {
@@ -8,7 +8,7 @@ function getDateTimeParts(timeZone) {
     timeZone,
     year: "numeric",
     month: "2-digit",
-    day: "2-digit"
+    day: "2-digit",
   });
 
   const date = formatter.format(now);
@@ -26,15 +26,17 @@ const DailySummaryIntentHandler = {
   async handle(handlerInput) {
     try {
       const { date } = getDateTimeParts(TIMEZONE);
-      const report = await getTodayDietReport(date, DAILY_TARGET);
+      const report = await getTodayDietReport(date);
       const { summary, meals } = report;
-      const remainingTarget = DAILY_TARGET - Number(summary.net || 0);
+      const remainingTarget = Number(summary.remaining || 0);
       const realDeficit = LORENZO_TDEE - Number(summary.net || 0);
 
       if (meals.length === 0) {
         return handlerInput.responseBuilder
           .speak("Oggi non ho ancora eventi registrati.")
-          .reprompt("Puoi dirmi, per esempio, colazione 170 grammi di yogurt greco e una banana.")
+          .reprompt(
+            "Puoi dirmi, per esempio, colazione 170 grammi di yogurt greco e una banana.",
+          )
           .getResponse();
       }
 
@@ -57,7 +59,9 @@ const DailySummaryIntentHandler = {
         `Proteine: ${Math.round(summary.protein)} grammi. ` +
         `Carboidrati: ${Math.round(summary.carbs)} grammi. ` +
         `Grassi: ${Math.round(summary.fat)} grammi. ` +
-        targetMessage + ` ` + realDeficitMessage;
+        targetMessage +
+        ` ` +
+        realDeficitMessage;
 
       return handlerInput.responseBuilder
         .speak(speechText)
@@ -71,9 +75,9 @@ const DailySummaryIntentHandler = {
         .reprompt("Riprova tra poco.")
         .getResponse();
     }
-  }
+  },
 };
 
 module.exports = {
-  DailySummaryIntentHandler
+  DailySummaryIntentHandler,
 };
