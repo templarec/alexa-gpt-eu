@@ -37,6 +37,142 @@ const {
   optionsKitchen,
 } = require("./handlers/http/kitchen");
 
+function getKitchenPageHtml() {
+  return `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cucina</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 42px;
+      margin-bottom: 12px;
+    }
+
+    .meta {
+      font-size: 20px;
+      color: #ccc;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      font-size: 28px;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    ul, ol {
+      font-size: 24px;
+      line-height: 1.6;
+      padding-left: 28px;
+    }
+
+    li {
+      margin-bottom: 10px;
+    }
+
+    .notes {
+      margin-top: 24px;
+      font-size: 22px;
+      color: #ddd;
+      background: #1b1b1b;
+      padding: 16px;
+      border-radius: 12px;
+    }
+
+    .empty {
+      font-size: 28px;
+      color: #bbb;
+      text-align: center;
+      margin-top: 120px;
+    }
+
+    .updated {
+      margin-top: 24px;
+      font-size: 16px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+    <div class="empty">Nessuna ricetta inviata alla cucina.</div>
+  </div>
+
+  <script>
+    const API_URL = "/kitchen/current";
+
+    async function loadKitchen() {
+      try {
+        const response = await fetch(API_URL);
+        const data = await response.json();
+        const state = data?.state;
+        const recipe = state?.recipe;
+        const app = document.getElementById("app");
+
+        if (!recipe) {
+          app.innerHTML = '<div class="empty">Nessuna ricetta inviata alla cucina.</div>';
+          return;
+        }
+
+        app.innerHTML = \`
+          <h1>\${escapeHtml(recipe.title || "")}</h1>
+          <div class="meta">Porzioni: \${recipe.servings ?? "-"}</div>
+
+          <h2>Ingredienti</h2>
+          <ul>
+            \${(recipe.ingredients || []).map(item => \`<li>\${escapeHtml(item)}</li>\`).join("")}
+          </ul>
+
+          <h2>Procedimento</h2>
+          <ol>
+            \${(recipe.steps || []).map(step => \`<li>\${escapeHtml(step)}</li>\`).join("")}
+          </ol>
+
+          \${recipe.notes ? \`<div class="notes">\${escapeHtml(recipe.notes)}</div>\` : ""}
+
+          <div class="updated">
+            Ultimo aggiornamento: \${state.updatedAt ? new Date(state.updatedAt).toLocaleString("it-IT") : "-"}
+          </div>
+        \`;
+      } catch (error) {
+        document.getElementById("app").innerHTML =
+          '<div class="empty">Errore nel caricamento della ricetta.</div>';
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    loadKitchen();
+    setInterval(loadKitchen, 5000);
+  </script>
+</body>
+</html>`;
+}
+
 function getBuildInfo() {
   try {
     const filePath = path.join(__dirname, "build-info.json");
@@ -598,11 +734,53 @@ async function httpHandler(event) {
     }
   }
 
-  // Protect all HTTP routes except the Withings webhook
-  if (!path.includes("/withings/webhook") && !authorizeHttpRequest(event)) {
+  const isPublicKitchenGet =
+    (path.includes("/kitchen") && method === "GET") ||
+    (path.includes("/kitchen") && method === "OPTIONS") ||
+    (path.includes("/kitchen/current") && method === "GET") ||
+    (path.includes("/kitchen/current") && method === "OPTIONS");
+
+  // Protect all HTTP routes except the Withings webhook and public kitchen display reads
+  if (
+    !path.includes("/withings/webhook") &&
+    !isPublicKitchenGet &&
+    !authorizeHttpRequest(event)
+  ) {
     return jsonResponse(401, { error: "Unauthorized" });
   }
-
+  if (
+    path.includes("/kitchen") &&
+    !path.includes("/kitchen/current") &&
+    !path.includes("/kitchen/display") &&
+    method === "OPTIONS"
+  ) {
+    return {
+      statusCode: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,x-api-key",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      },
+      body: "",
+    };
+  }
+  if (
+    path.includes("/kitchen") &&
+    !path.includes("/kitchen/current") &&
+    !path.includes("/kitchen/display") &&
+    method === "GET"
+  ) {
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,x-api-key",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      },
+      body: getKitchenPageHtml(),
+    };
+  }
   if (path.includes("/version") && method === "GET") {
     return jsonResponse(200, {
       ok: true,
