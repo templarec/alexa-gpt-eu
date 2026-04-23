@@ -544,6 +544,70 @@ async function saveDailyStatsSnapshot({
   return result;
 }
 
+async function saveKitchenState(recipe) {
+  const sheets = await getSheetsClient();
+
+  const state = {
+    updatedAt: new Date().toISOString(),
+    recipe: {
+      title: recipe.title,
+      servings: recipe.servings ?? "",
+      ingredients: recipe.ingredients || [],
+      steps: recipe.steps || [],
+      notes: recipe.notes || "",
+    },
+  };
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "Kitchen!A2:F2",
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          state.updatedAt,
+          state.recipe.title,
+          state.recipe.servings,
+          JSON.stringify(state.recipe.ingredients),
+          JSON.stringify(state.recipe.steps),
+          state.recipe.notes,
+        ],
+      ],
+    },
+  });
+
+  return state;
+}
+
+async function getKitchenState() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "Kitchen!A2:F2",
+  });
+
+  const row = response.data.values?.[0];
+
+  if (!row || row.length === 0) {
+    return {
+      updatedAt: null,
+      recipe: null,
+    };
+  }
+
+  return {
+    updatedAt: row[0] || null,
+    recipe: {
+      title: row[1] || "",
+      servings: row[2] ? Number(row[2]) : null,
+      ingredients: row[3] ? JSON.parse(row[3]) : [],
+      steps: row[4] ? JSON.parse(row[4]) : [],
+      notes: row[5] || "",
+    },
+  };
+}
+
 async function getTodayRows(todayDate) {
   if (
     isCacheValid(cache.todayMeals) &&
@@ -788,4 +852,6 @@ module.exports = {
   getTodaySummary,
   getTodayDietReport,
   getAllMeals,
+  saveKitchenState,
+  getKitchenState,
 };

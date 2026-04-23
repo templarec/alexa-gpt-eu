@@ -1,14 +1,4 @@
-const fs = require("fs/promises");
-const path = require("path");
-
-const KITCHEN_STATE_PATH = process.env.AWS_LAMBDA_FUNCTION_NAME
-  ? "/tmp/kitchen-state.json"
-  : path.join(__dirname, "../../data/kitchen-state.json");
-
-async function ensureKitchenStateDir() {
-  const dir = path.dirname(KITCHEN_STATE_PATH);
-  await fs.mkdir(dir, { recursive: true });
-}
+const { saveKitchenState, getKitchenState } = require("../../sheets");
 
 function jsonResponse(statusCode, body) {
   return {
@@ -43,6 +33,7 @@ function validateKitchenPayload(payload) {
 
   if (
     payload.servings !== undefined &&
+    payload.servings !== null &&
     (!Number.isInteger(payload.servings) || payload.servings <= 0)
   ) {
     return "Campo 'servings' deve essere un intero positivo";
@@ -71,44 +62,6 @@ function validateKitchenPayload(payload) {
   return null;
 }
 
-async function writeKitchenState(recipe) {
-  await ensureKitchenStateDir();
-
-  const state = {
-    updatedAt: new Date().toISOString(),
-    recipe: {
-      title: recipe.title,
-      servings: recipe.servings ?? null,
-      ingredients: recipe.ingredients,
-      steps: recipe.steps,
-      notes: recipe.notes ?? "",
-    },
-  };
-
-  await fs.writeFile(
-    KITCHEN_STATE_PATH,
-    JSON.stringify(state, null, 2),
-    "utf8",
-  );
-
-  return state;
-}
-
-async function readKitchenState() {
-  try {
-    const raw = await fs.readFile(KITCHEN_STATE_PATH, "utf8");
-    return JSON.parse(raw);
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return {
-        updatedAt: null,
-        recipe: null,
-      };
-    }
-    throw error;
-  }
-}
-
 async function postKitchenDisplay(event) {
   const body = parseBody(event);
 
@@ -127,7 +80,7 @@ async function postKitchenDisplay(event) {
     });
   }
 
-  const state = await writeKitchenState(body);
+  const state = await saveKitchenState(body);
 
   return jsonResponse(200, {
     ok: true,
@@ -137,7 +90,7 @@ async function postKitchenDisplay(event) {
 }
 
 async function getKitchenCurrent() {
-  const state = await readKitchenState();
+  const state = await getKitchenState();
 
   return jsonResponse(200, {
     ok: true,
