@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "33cdd0d2f78fa516f29cdf2560fc671fb133135a",
-  "gitShortCommit": "33cdd0d",
-  "gitCommitMessage": "fix: bug on diet.js",
+  "gitCommit": "5c3dfd10617adbb9b4576c0a1589cb619e133cd0",
+  "gitShortCommit": "5c3dfd1",
+  "gitCommitMessage": "debug: tdee adaptive",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-23T15:52:16.460Z"
+  "deployedAt": "2026-04-23T16:00:08.353Z"
 }

@@ -209,10 +209,10 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
     return null;
   }
 
-  const averageDailyNet = (totalMealIntake + totalActivity) / daysCovered;
+  const averageDailyIntake = totalMealIntake / daysCovered;
   const impliedDailyDeficit =
     ((firstWeight - lastWeight) * KCAL_PER_KG) / daysSpan;
-  const adaptiveTdee = averageDailyNet + impliedDailyDeficit;
+  const adaptiveTdee = averageDailyIntake + impliedDailyDeficit;
 
   console.log(
     "ADAPTIVE TDEE DEBUG",
@@ -230,7 +230,7 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
       daysSpan,
       totalMealIntake: roundNumber(totalMealIntake, 0),
       totalActivity: roundNumber(totalActivity, 0),
-      averageDailyNet: roundNumber(averageDailyNet, 0),
+      averageDailyIntake: roundNumber(averageDailyIntake, 0),
       impliedDailyDeficit: roundNumber(impliedDailyDeficit, 0),
       adaptiveTdee: roundNumber(adaptiveTdee, 0),
     }),
