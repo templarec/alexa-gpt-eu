@@ -1,4 +1,5 @@
-const {} = require("../../config");
+const { getTodayDietReport } = require("../../sheets");
+const { jsonResponse } = require("../../utils/http");
 
 async function handleGetDietToday({ date }) {
   const report = await getTodayDietReport(date);
