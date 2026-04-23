@@ -1,10 +1,9 @@
 const fs = require("fs/promises");
 const path = require("path");
 
-const KITCHEN_STATE_PATH = path.join(
-  __dirname,
-  "../../data/kitchen-state.json",
-);
+const KITCHEN_STATE_PATH = process.env.AWS_LAMBDA_FUNCTION_NAME
+  ? "/tmp/kitchen-state.json"
+  : path.join(__dirname, "../../data/kitchen-state.json");
 
 async function ensureKitchenStateDir() {
   const dir = path.dirname(KITCHEN_STATE_PATH);
