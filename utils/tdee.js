@@ -214,28 +214,6 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
     ((firstWeight - lastWeight) * KCAL_PER_KG) / daysSpan;
   const adaptiveTdee = averageDailyIntake + impliedDailyDeficit;
 
-  console.log(
-    "ADAPTIVE TDEE DEBUG",
-    JSON.stringify({
-      endDateString,
-      coveredMealDates: [...coveredMealDates].sort(),
-      coveredMealDays: coveredMealDates.size,
-      activityRowsCount: activityRows.length,
-      normalizedActivitiesCount: normalizedActivities.length,
-      weightDates,
-      firstWeightDate,
-      lastWeightDate,
-      firstWeight,
-      lastWeight,
-      daysSpan,
-      totalMealIntake: roundNumber(totalMealIntake, 0),
-      totalActivity: roundNumber(totalActivity, 0),
-      averageDailyIntake: roundNumber(averageDailyIntake, 0),
-      impliedDailyDeficit: roundNumber(impliedDailyDeficit, 0),
-      adaptiveTdee: roundNumber(adaptiveTdee, 0),
-    }),
-  );
-
   if (
     !Number.isFinite(adaptiveTdee) ||
     adaptiveTdee < 1200 ||

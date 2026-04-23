@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "5c3dfd10617adbb9b4576c0a1589cb619e133cd0",
-  "gitShortCommit": "5c3dfd1",
-  "gitCommitMessage": "debug: tdee adaptive",
+  "gitCommit": "b82bb21744d38482b8e9782dddc4b388b95b94bf",
+  "gitShortCommit": "b82bb21",
+  "gitCommitMessage": "fix: bug adaptive tdee",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-23T16:00:08.353Z"
+  "deployedAt": "2026-04-23T16:03:27.257Z"
 }
