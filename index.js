@@ -31,6 +31,12 @@ const {
 } = require("./handlers/http/withings");
 const { DailySummaryIntentHandler } = require("./handlers/alexa/dailySummary");
 
+const {
+  postKitchenDisplay,
+  getKitchenCurrent,
+  optionsKitchen,
+} = require("./handlers/http/kitchen");
+
 function getBuildInfo() {
   try {
     const filePath = path.join(__dirname, "build-info.json");
@@ -604,6 +610,21 @@ async function httpHandler(event) {
       version: getBuildInfo(),
       aws: getAwsRuntimeInfo(),
     });
+  }
+  if (path.includes("/kitchen/display") && method === "OPTIONS") {
+    return optionsKitchen();
+  }
+
+  if (path.includes("/kitchen/current") && method === "OPTIONS") {
+    return optionsKitchen();
+  }
+
+  if (path.includes("/kitchen/display") && method === "POST") {
+    return postKitchenDisplay(event);
+  }
+
+  if (path.includes("/kitchen/current") && method === "GET") {
+    return getKitchenCurrent();
   }
 
   if (path.includes("/withings/import-all") && method === "GET") {
