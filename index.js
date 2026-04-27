@@ -994,8 +994,12 @@ async function httpHandler(event) {
     return createAnalyzedMealFromHttp(event, { date, time });
   }
   if (path.includes("/diet/week-context") && method === "GET") {
-    const { date } = getDateTimeParts(TIMEZONE);
-    const context = await getWeekDietContext(date);
+    const { date: today } = getDateTimeParts(TIMEZONE);
+
+    const queryParams = event.queryStringParameters || {};
+    const referenceDate = queryParams.date || today;
+
+    const context = await getWeekDietContext(referenceDate);
 
     return jsonResponse(200, {
       ok: true,

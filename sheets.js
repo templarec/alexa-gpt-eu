@@ -924,7 +924,7 @@ async function getWeekDietContext(referenceDate) {
 
       target,
 
-      deficit,
+      remaining: deficit,
 
       protein: roundNumber(mealTotals.protein, 1),
 
@@ -954,7 +954,7 @@ async function getWeekDietContext(referenceDate) {
 
       target: roundNumber(totalTarget, 0),
 
-      deficit: roundNumber(totalDeficit, 0),
+      remaining: roundNumber(totalDeficit, 0),
 
       protein: roundNumber(totalProtein, 1),
 
