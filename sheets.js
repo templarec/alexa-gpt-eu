@@ -855,6 +855,8 @@ async function getWeekDietContext(referenceDate) {
   let totalDeficit = 0;
 
   const start = new Date(`${weekStart}T00:00:00Z`);
+  const manualTarget =
+    parseSheetNumber(await getConfigValue("diet_target_manual")) || 1750;
 
   for (let i = 0; i < 7; i++) {
     const current = new Date(start);
@@ -889,25 +891,9 @@ async function getWeekDietContext(referenceDate) {
 
     const net = roundNumber(intake + activity, 0);
 
-    let target = null;
+    const target = manualTarget;
 
-    let deficit = null;
-
-    try {
-      const report = await getTodayDietReport(date, null, {
-        skipDailyStatsSnapshot: true,
-      });
-
-      target = report.summary.target;
-
-      deficit = report.summary.deficit;
-    } catch (error) {
-      console.log(
-        "WEEK CONTEXT DAILY REPORT SKIPPED",
-
-        JSON.stringify({ date, error: error.message }),
-      );
-    }
+    const deficit = roundNumber(target - net, 0);
 
     if (target != null) {
       totalTarget += target;
