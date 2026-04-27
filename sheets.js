@@ -501,6 +501,77 @@ async function upsertDailyStatsRow(row) {
   };
 }
 
+async function upsertWeeklyStatsRow(data) {
+  const sheets = await getSheetsClient();
+  const weekStart = String(data.week_start || "").trim();
+
+  if (!weekStart) {
+    throw new Error("WeeklyStats row missing week_start");
+  }
+
+  const row = [
+    data.week_start || "",
+    data.week_end || "",
+    data.intake ?? 0,
+    data.activity ?? 0,
+    data.net ?? 0,
+    data.target ?? 0,
+    data.remaining ?? 0,
+    data.protein ?? 0,
+    data.carbs ?? 0,
+    data.fat ?? 0,
+    data.recent_meals_json || "[]",
+    data.food_frequency_json || "{}",
+    data.variety_warnings_json || "[]",
+    data.generated_at || new Date().toISOString(),
+    data.source || "refresh",
+  ];
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "WeeklyStats!A:O",
+  });
+
+  const rows = response.data.values || [];
+  const existingIndex = rows.findIndex(
+    (existingRow, idx) =>
+      idx > 0 && String(existingRow[0] || "").trim() === weekStart,
+  );
+
+  if (existingIndex !== -1) {
+    const rowNumber = existingIndex + 1;
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.SHEET_ID,
+      range: `WeeklyStats!A${rowNumber}:O${rowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [row],
+      },
+    });
+
+    return {
+      success: true,
+      updated: true,
+      rowNumber,
+    };
+  }
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "WeeklyStats!A:O",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [row],
+    },
+  });
+
+  return {
+    success: true,
+    updated: false,
+  };
+}
+
 async function saveDailyStatsSnapshot({
   date,
   summary,
@@ -1255,6 +1326,7 @@ module.exports = {
   getConfigValue,
   setConfigValue,
   upsertDailyStatsRow,
+  upsertWeeklyStatsRow,
   saveDailyStatsSnapshot,
   getTodayRows,
   getTodayActivityRows,

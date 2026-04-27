@@ -8,6 +8,8 @@ const {
   getLastBodyRow,
   getTodayDietReport,
   getWeekDietContext,
+  getAllMeals,
+  upsertWeeklyStatsRow,
 } = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
@@ -454,7 +456,90 @@ async function processWithingsWebhookAsync(payload) {
 
   return { ok: true, ignored: true };
 }
+function getMonday(dateString) {
+  const date = new Date(dateString + "T00:00:00");
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
 
+  date.setDate(date.getDate() + diff);
+
+  return date.toISOString().slice(0, 10);
+}
+
+async function runWeeklyStatsBackfill() {
+  console.log("WEEKLY BACKFILL START");
+
+  const rows = await getAllMeals();
+
+  const uniqueDates = new Set();
+
+  for (const row of rows) {
+    const date = String(row[0] || "").trim();
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      uniqueDates.add(date);
+    }
+  }
+
+  const uniqueWeeks = new Set();
+
+  for (const date of uniqueDates) {
+    uniqueWeeks.add(getMonday(date));
+  }
+
+  const sortedWeeks = [...uniqueWeeks].sort();
+
+  console.log(
+    "WEEKLY BACKFILL WEEKS FOUND",
+    JSON.stringify({
+      count: sortedWeeks.length,
+      weeks: sortedWeeks,
+    }),
+  );
+
+  const results = [];
+
+  for (const weekStart of sortedWeeks) {
+    console.log("WEEKLY BACKFILL PROCESSING", weekStart);
+
+    const context = await getWeekDietContext(weekStart);
+
+    const result = await upsertWeeklyStatsRow({
+      week_start: context.week_start,
+      week_end: context.week_end,
+      intake: context.summary.intake,
+      activity: context.summary.activity,
+      net: context.summary.net,
+      target: context.summary.target,
+      remaining: context.summary.remaining,
+      protein: context.summary.protein,
+      carbs: context.summary.carbs,
+      fat: context.summary.fat,
+      recent_meals_json: JSON.stringify(context.recent_meals || []),
+      food_frequency_json: JSON.stringify(context.food_frequency || {}),
+      variety_warnings_json: JSON.stringify(context.variety_warnings || []),
+      generated_at: new Date().toISOString(),
+      source: "backfill",
+    });
+
+    results.push({
+      week_start: context.week_start,
+      week_end: context.week_end,
+      updated: result.updated,
+    });
+  }
+
+  console.log(
+    "WEEKLY BACKFILL DONE",
+    JSON.stringify({ count: results.length }),
+  );
+
+  return {
+    ok: true,
+    count: results.length,
+    results,
+  };
+}
 function buildMealHandler(intentName, mealType) {
   return {
     canHandle(handlerInput) {
@@ -992,6 +1077,11 @@ async function httpHandler(event) {
   if (path.includes("/meals/analyze") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
     return createAnalyzedMealFromHttp(event, { date, time });
+  }
+  if (path.includes("/admin/backfill-weekly-stats") && method === "POST") {
+    const result = await runWeeklyStatsBackfill();
+
+    return jsonResponse(200, result);
   }
   if (path.includes("/diet/week-context") && method === "GET") {
     const { date: today } = getDateTimeParts(TIMEZONE);

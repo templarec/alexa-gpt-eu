@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "1bf178a594430f22c17ac1d1c204b23434af0a34",
-  "gitShortCommit": "1bf178a",
-  "gitCommitMessage": "fix: week-context logic for speed",
+  "gitCommit": "d25c832d5d92981e0509be764bbf56015eec74a3",
+  "gitShortCommit": "d25c832",
+  "gitCommitMessage": "feat: parametric weekly context",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-27T09:58:57.958Z"
+  "deployedAt": "2026-04-27T10:16:46.668Z"
 }
