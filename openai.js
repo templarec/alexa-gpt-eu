@@ -2,7 +2,10 @@ const { sanitizeForAlexa, extractJsonObject } = require("./utils");
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
-async function callOpenAI(messages, { temperature = 0.2, max_tokens = 180, response_format } = {}) {
+async function callOpenAI(
+  messages,
+  { temperature = 0.2, max_tokens = 180, response_format } = {},
+) {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY non configurata");
   }
@@ -11,15 +14,15 @@ async function callOpenAI(messages, { temperature = 0.2, max_tokens = 180, respo
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages,
       temperature,
       max_tokens,
-      response_format
-    })
+      response_format,
+    }),
   });
 
   const data = await response.json();
@@ -46,18 +49,18 @@ async function askChat(question, history = []) {
     {
       role: "system",
       content:
-        "Sei Alambicco, un assistente vocale per Alexa. Rispondi in italiano, in massimo due o tre frasi, con stile naturale parlato. Se l'utente fa un follow-up, usa il contesto precedente."
+        "Sei Alambicco, un assistente vocale per Alexa. Rispondi in italiano, in massimo due o tre frasi, con stile naturale parlato. Se l'utente fa un follow-up, usa il contesto precedente.",
     },
     ...history,
     {
       role: "user",
-      content: question
-    }
+      content: question,
+    },
   ];
 
   const text = await callOpenAI(messages, {
     temperature: 0.6,
-    max_tokens: 150
+    max_tokens: 150,
   });
 
   return sanitizeForAlexa(text);
@@ -72,6 +75,7 @@ Testo utente: ${mealText}
 
 Regole:
 - Interpreta quantità e unità se presenti (grammi, g, ml, cucchiai, banana media, uovo, passi, km, minuti, ecc.).
+- Per alimenti e calorie usa come fonte prioritaria dati ufficiali europei/italiani CREA, quando disponibili; se il dato CREA non è disponibile, usa stime nutrizionali comuni e realistiche.
 - Se una quantità manca, stimala solo se è molto implicita e comune; altrimenti segnala che manca.
 - Se il tipo è "attivita", le calorie devono essere negative e protein/carbs/fat devono essere 0.
 - Rispondi SOLO con JSON valido.
@@ -107,18 +111,18 @@ Formato JSON obbligatorio:
       {
         role: "system",
         content:
-          "Sei un assistente nutrizionale preciso. Devi rispondere solo con JSON valido. Nessun testo extra. Nessun markdown."
+          "Sei un assistente nutrizionale preciso. Devi rispondere solo con JSON valido. Nessun testo extra. Nessun markdown.",
       },
       {
         role: "user",
-        content: prompt
-      }
+        content: prompt,
+      },
     ],
     {
       temperature: 0,
       max_tokens: 500,
-      response_format: { type: "json_object" }
-    }
+      response_format: { type: "json_object" },
+    },
   );
 
   console.log("ANALYZE RAW:", raw);
@@ -147,7 +151,7 @@ Formato JSON obbligatorio:
     calories: Number(parsed.total.calories || 0),
     protein: Number(parsed.total.protein || 0),
     carbs: Number(parsed.total.carbs || 0),
-    fat: Number(parsed.total.fat || 0)
+    fat: Number(parsed.total.fat || 0),
   };
 
   return parsed;
@@ -155,5 +159,5 @@ Formato JSON obbligatorio:
 
 module.exports = {
   askChat,
-  analyzeMeal
+  analyzeMeal,
 };

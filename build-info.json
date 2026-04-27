@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "356ce34bc5549caabe984505312d2fb7cfa3e132",
-  "gitShortCommit": "356ce34",
-  "gitCommitMessage": "debug: remove logs",
+  "gitCommit": "6fa923c6f7ddff8534309407028c20cbf3fed83e",
+  "gitShortCommit": "6fa923c",
+  "gitCommitMessage": "feat: layout",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-23T16:06:27.247Z"
+  "deployedAt": "2026-04-23T16:53:52.492Z"
 }
