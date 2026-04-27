@@ -607,7 +607,397 @@ async function getKitchenState() {
     },
   };
 }
+function getWeekRangeMondaySunday(referenceDate) {
+  const date = new Date(`${referenceDate}T00:00:00Z`);
 
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid reference date: ${referenceDate}`);
+  }
+
+  const day = date.getUTCDay();
+
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+
+  const monday = new Date(date);
+
+  monday.setUTCDate(date.getUTCDate() + diffToMonday);
+
+  const sunday = new Date(monday);
+
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+
+  return {
+    weekStart: monday.toISOString().slice(0, 10),
+
+    weekEnd: sunday.toISOString().slice(0, 10),
+  };
+}
+
+function isDateInRange(date, startDate, endDate) {
+  const value = String(date || "").trim();
+
+  return value >= startDate && value <= endDate;
+}
+
+function buildFoodFrequency(meals) {
+  const patterns = [
+    { key: "uova", regex: /\b(uovo|uova|albume|albumi)\b/i },
+
+    { key: "yogurt greco", regex: /\byogurt\s+greco\b/i },
+
+    { key: "yogurt", regex: /\byogurt\b/i },
+
+    { key: "tonno", regex: /\btonno\b/i },
+
+    { key: "pollo", regex: /\bpollo\b/i },
+
+    { key: "tacchino", regex: /\btacchino\b/i },
+
+    {
+      key: "carne rossa",
+
+      regex: /\b(manzo|bovino|hamburger|vitello|maiale|salsiccia)\b/i,
+    },
+
+    {
+      key: "pesce",
+
+      regex: /\b(pesce|salmone|merluzzo|orata|branzino|sgombro|gamberi)\b/i,
+    },
+
+    { key: "fiocchi di latte", regex: /\bfiocchi\s+di\s+latte\b/i },
+
+    { key: "latte", regex: /\blatte\b/i },
+
+    { key: "mozzarella", regex: /\bmozzarella\b/i },
+
+    { key: "pasta", regex: /\bpasta\b/i },
+
+    { key: "riso", regex: /\briso\b/i },
+
+    { key: "piadina", regex: /\bpiadina\b/i },
+
+    { key: "pane", regex: /\bpane\b/i },
+
+    { key: "patate", regex: /\bpatat(e|a)\b/i },
+
+    { key: "banana", regex: /\bbanana\b/i },
+
+    { key: "mela", regex: /\bmela\b/i },
+  ];
+
+  const frequency = {};
+
+  for (const meal of meals) {
+    const description = String(meal.description || "");
+
+    for (const pattern of patterns) {
+      if (pattern.regex.test(description)) {
+        frequency[pattern.key] = (frequency[pattern.key] || 0) + 1;
+      }
+    }
+  }
+
+  return frequency;
+}
+
+function buildVarietyWarnings(foodFrequency) {
+  const warnings = [];
+
+  if ((foodFrequency.uova || 0) >= 4) {
+    warnings.push(
+      "Uova già frequenti questa settimana: evita di proporle se ci sono alternative.",
+    );
+  }
+
+  if ((foodFrequency.tonno || 0) >= 2) {
+    warnings.push(
+      "Tonno già usato più volte questa settimana: meglio alternare con altro pesce o proteine diverse.",
+    );
+  }
+
+  if ((foodFrequency["yogurt greco"] || 0) >= 3) {
+    warnings.push(
+      "Yogurt greco già frequente questa settimana: evita ridondanza negli spuntini.",
+    );
+  }
+
+  if ((foodFrequency.pollo || 0) >= 3) {
+    warnings.push(
+      "Pollo già frequente questa settimana: varia con legumi, pesce, latticini o altre proteine.",
+    );
+  }
+
+  if ((foodFrequency.piadina || 0) >= 3) {
+    warnings.push(
+      "Piadina già frequente questa settimana: varia la fonte di carboidrati.",
+    );
+  }
+
+  return warnings;
+}
+
+async function getMealRowsByDateRange(startDate, endDate) {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+
+    range: "Meals!A:H",
+  });
+
+  const rows = response.data.values || [];
+
+  return rows
+
+    .slice(1)
+
+    .filter((row) => isDateInRange(row[0], startDate, endDate));
+}
+
+async function getActivityRowsByDateRange(startDate, endDate) {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+
+    range: "activity!A:M",
+  });
+
+  const rows = response.data.values || [];
+
+  return rows
+
+    .slice(1)
+
+    .filter((row) => isDateInRange(row[0], startDate, endDate));
+}
+
+async function getWeekDietContext(referenceDate) {
+  const { weekStart, weekEnd } = getWeekRangeMondaySunday(referenceDate);
+
+  const mealRows = await getMealRowsByDateRange(weekStart, weekEnd);
+
+  const activityRows = await getActivityRowsByDateRange(weekStart, weekEnd);
+
+  const meals = mealRows.map((row) => ({
+    date: String(row[0] || "").trim(),
+
+    time: row[1] || "",
+
+    meal_type: row[2] || "",
+
+    description: row[3] || "",
+
+    calories: parseSheetNumber(row[4]),
+
+    protein: parseSheetNumber(row[5]),
+
+    carbs: parseSheetNumber(row[6]),
+
+    fat: parseSheetNumber(row[7]),
+  }));
+
+  const activitiesByDate = {};
+
+  const mealTotalsByDate = {};
+
+  for (const meal of meals) {
+    if (!mealTotalsByDate[meal.date]) {
+      mealTotalsByDate[meal.date] = {
+        intake: 0,
+
+        protein: 0,
+
+        carbs: 0,
+
+        fat: 0,
+
+        mealsCount: 0,
+      };
+    }
+
+    mealTotalsByDate[meal.date].intake += meal.calories;
+
+    mealTotalsByDate[meal.date].protein += meal.protein;
+
+    mealTotalsByDate[meal.date].carbs += meal.carbs;
+
+    mealTotalsByDate[meal.date].fat += meal.fat;
+
+    mealTotalsByDate[meal.date].mealsCount += 1;
+  }
+
+  for (const row of activityRows) {
+    const date = String(row[0] || "").trim();
+
+    if (!activitiesByDate[date]) {
+      activitiesByDate[date] = [];
+    }
+
+    activitiesByDate[date].push(row);
+  }
+
+  const days = [];
+
+  let totalIntake = 0;
+
+  let totalActivity = 0;
+
+  let totalProtein = 0;
+
+  let totalCarbs = 0;
+
+  let totalFat = 0;
+
+  let totalTarget = 0;
+
+  let totalDeficit = 0;
+
+  const start = new Date(`${weekStart}T00:00:00Z`);
+
+  for (let i = 0; i < 7; i++) {
+    const current = new Date(start);
+
+    current.setUTCDate(start.getUTCDate() + i);
+
+    const date = current.toISOString().slice(0, 10);
+
+    const mealTotals = mealTotalsByDate[date] || {
+      intake: 0,
+
+      protein: 0,
+
+      carbs: 0,
+
+      fat: 0,
+
+      mealsCount: 0,
+    };
+
+    const normalizedActivities = buildNormalizedActivityEntries(
+      activitiesByDate[date] || [],
+    );
+
+    const activity = roundNumber(
+      normalizedActivities.reduce((sum, entry) => sum + entry.calories, 0),
+
+      0,
+    );
+
+    const intake = roundNumber(mealTotals.intake, 0);
+
+    const net = roundNumber(intake + activity, 0);
+
+    let target = null;
+
+    let deficit = null;
+
+    try {
+      const report = await getTodayDietReport(date, null, {
+        skipDailyStatsSnapshot: true,
+      });
+
+      target = report.summary.target;
+
+      deficit = report.summary.deficit;
+    } catch (error) {
+      console.log(
+        "WEEK CONTEXT DAILY REPORT SKIPPED",
+
+        JSON.stringify({ date, error: error.message }),
+      );
+    }
+
+    if (target != null) {
+      totalTarget += target;
+    }
+
+    if (deficit != null) {
+      totalDeficit += deficit;
+    }
+
+    totalIntake += intake;
+
+    totalActivity += activity;
+
+    totalProtein += mealTotals.protein;
+
+    totalCarbs += mealTotals.carbs;
+
+    totalFat += mealTotals.fat;
+
+    days.push({
+      date,
+
+      intake,
+
+      activity,
+
+      net,
+
+      target,
+
+      deficit,
+
+      protein: roundNumber(mealTotals.protein, 1),
+
+      carbs: roundNumber(mealTotals.carbs, 1),
+
+      fat: roundNumber(mealTotals.fat, 1),
+
+      meals_count: mealTotals.mealsCount,
+
+      activities_count: normalizedActivities.length,
+    });
+  }
+
+  const foodFrequency = buildFoodFrequency(meals);
+
+  return {
+    week_start: weekStart,
+
+    week_end: weekEnd,
+
+    summary: {
+      intake: roundNumber(totalIntake, 0),
+
+      activity: roundNumber(totalActivity, 0),
+
+      net: roundNumber(totalIntake + totalActivity, 0),
+
+      target: roundNumber(totalTarget, 0),
+
+      deficit: roundNumber(totalDeficit, 0),
+
+      protein: roundNumber(totalProtein, 1),
+
+      carbs: roundNumber(totalCarbs, 1),
+
+      fat: roundNumber(totalFat, 1),
+
+      avg_daily_intake: roundNumber(totalIntake / 7, 0),
+
+      avg_daily_net: roundNumber((totalIntake + totalActivity) / 7, 0),
+    },
+
+    days,
+
+    recent_meals: meals.slice(-20).map((meal) => ({
+      date: meal.date,
+
+      meal_type: meal.meal_type,
+
+      description: meal.description,
+
+      calories: meal.calories,
+    })),
+
+    food_frequency: foodFrequency,
+
+    variety_warnings: buildVarietyWarnings(foodFrequency),
+  };
+}
 async function getTodayRows(todayDate) {
   if (
     isCacheValid(cache.todayMeals) &&
@@ -698,7 +1088,12 @@ async function getTodaySummary(todayDate) {
   };
 }
 
-async function getTodayDietReport(todayDate, targetCalories = null) {
+async function getTodayDietReport(
+  todayDate,
+  targetCalories = null,
+  options = {},
+) {
+  const { skipDailyStatsSnapshot = false } = options;
   const rows = await getTodayRows(todayDate);
   const activityRows = await getTodayActivityRows(todayDate);
 
@@ -810,34 +1205,36 @@ async function getTodayDietReport(todayDate, targetCalories = null) {
     deficit,
   };
 
-  try {
-    const sheets = await getSheetsClient();
+  if (!skipDailyStatsSnapshot) {
+    try {
+      const sheets = await getSheetsClient();
 
-    const averageWeightLast7Days = await getAverageWeightLast7Days(
-      sheets,
-      process.env.SHEET_ID,
-      todayDate,
-    );
+      const averageWeightLast7Days = await getAverageWeightLast7Days(
+        sheets,
+        process.env.SHEET_ID,
+        todayDate,
+      );
 
-    const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
-      sheets,
-      process.env.SHEET_ID,
-      todayDate,
-    );
+      const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
+        sheets,
+        process.env.SHEET_ID,
+        todayDate,
+      );
 
-    await saveDailyStatsSnapshot({
-      date: todayDate,
-      summary,
-      weight: averageWeightLast7Days,
-      bodyFat: averageBodyFatLast7Days,
-      notes: JSON.stringify({
-        mealsCount: meals.length,
-        activitiesCount: activities.length,
-        adaptiveModel: true,
-      }),
-    });
-  } catch (error) {
-    console.log("DAILY STATS SNAPSHOT SKIPPED", error.message);
+      await saveDailyStatsSnapshot({
+        date: todayDate,
+        summary,
+        weight: averageWeightLast7Days,
+        bodyFat: averageBodyFatLast7Days,
+        notes: JSON.stringify({
+          mealsCount: meals.length,
+          activitiesCount: activities.length,
+          adaptiveModel: true,
+        }),
+      });
+    } catch (error) {
+      console.log("DAILY STATS SNAPSHOT SKIPPED", error.message);
+    }
   }
 
   return {
@@ -878,6 +1275,7 @@ module.exports = {
   getTodayRunningTotal,
   getTodaySummary,
   getTodayDietReport,
+  getWeekDietContext,
   getAllMeals,
   saveKitchenState,
   getKitchenState,

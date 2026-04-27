@@ -7,6 +7,7 @@ const {
   appendBodyRow,
   getLastBodyRow,
   getTodayDietReport,
+  getWeekDietContext,
 } = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
@@ -992,7 +993,15 @@ async function httpHandler(event) {
     const { date, time } = getDateTimeParts(TIMEZONE);
     return createAnalyzedMealFromHttp(event, { date, time });
   }
+  if (path.includes("/diet/week-context") && method === "GET") {
+    const { date } = getDateTimeParts(TIMEZONE);
+    const context = await getWeekDietContext(date);
 
+    return jsonResponse(200, {
+      ok: true,
+      context,
+    });
+  }
   if (path.includes("/diet/today") && method === "GET") {
     const { date } = getDateTimeParts(TIMEZONE);
     return handleGetDietToday({ date });

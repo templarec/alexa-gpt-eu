@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "6fa923c6f7ddff8534309407028c20cbf3fed83e",
-  "gitShortCommit": "6fa923c",
-  "gitCommitMessage": "feat: layout",
+  "gitCommit": "a6acc146d9f1181b72e4082392d6740312e7ac66",
+  "gitShortCommit": "a6acc14",
+  "gitCommitMessage": "fix: prompt uses CREA tables for calories",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-23T16:53:52.492Z"
+  "deployedAt": "2026-04-27T09:32:32.829Z"
 }
