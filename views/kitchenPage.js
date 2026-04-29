@@ -113,11 +113,20 @@ function getKitchenPageHtml() {
       padding-bottom: 10px;
     }
 
-    ul, ol {
+    ul {
       margin: 0;
       font-size: clamp(18px, 2.5vw, 26px);
       line-height: 1.45;
       padding-left: 28px;
+    }
+
+    ol {
+      margin: 0;
+      font-size: clamp(14px, 1.8vw, 22px);
+      line-height: 1.35;
+      padding-left: 24px;
+      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     li {

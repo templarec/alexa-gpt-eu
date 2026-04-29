@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "e1056c1ec95f68bb9b092d06a000d035352fb557",
-  "gitShortCommit": "e1056c1",
-  "gitCommitMessage": "fix: note removed, and scroll issue",
+  "gitCommit": "2c4aa0d7b1b57341e6e3e41cbfeebd2cc031719b",
+  "gitShortCommit": "2c4aa0d",
+  "gitCommitMessage": "fix: smaller title",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-29T20:41:34.598Z"
+  "deployedAt": "2026-04-29T20:43:29.538Z"
 }
