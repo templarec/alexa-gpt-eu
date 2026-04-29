@@ -105,9 +105,6 @@ function getKitchenPageHtml() {
       overflow: auto;
     }
 
-    .panel.notes-panel {
-      background: var(--panel-2);
-    }
 
     h2 {
       margin: 0 0 14px 0;
@@ -127,12 +124,6 @@ function getKitchenPageHtml() {
       margin-bottom: 12px;
     }
 
-    .notes {
-      font-size: clamp(17px, 2.2vw, 23px);
-      line-height: 1.45;
-      color: #e0e0e0;
-      white-space: pre-wrap;
-    }
 
     .footer {
       flex: 0 0 auto;
@@ -187,6 +178,7 @@ function getKitchenPageHtml() {
 
   <script>
     const API_URL = "/kitchen/current";
+    let lastRenderedSignature = null;
 
     async function loadKitchen() {
       try {
@@ -197,13 +189,30 @@ function getKitchenPageHtml() {
         const app = document.getElementById("app");
 
         if (!recipe) {
-          app.innerHTML = \`
-            <div class="empty-wrap">
-              <div class="empty">Nessuna ricetta inviata alla cucina.</div>
-            </div>
-          \`;
+          const emptySignature = "empty";
+
+          if (lastRenderedSignature !== emptySignature) {
+            app.innerHTML = \`
+              <div class="empty-wrap">
+                <div class="empty">Nessuna ricetta inviata alla cucina.</div>
+              </div>
+            \`;
+            lastRenderedSignature = emptySignature;
+          }
+
           return;
         }
+
+        const currentSignature = JSON.stringify({
+          updatedAt: state?.updatedAt || null,
+          recipe,
+        });
+
+        if (lastRenderedSignature === currentSignature) {
+          return;
+        }
+
+        lastRenderedSignature = currentSignature;
 
         app.innerHTML = \`
           <div class="screen">
@@ -227,13 +236,6 @@ function getKitchenPageHtml() {
                 </ol>
               </section>
             </div>
-
-            \${recipe.notes ? \`
-              <section class="panel notes-panel">
-                <h2>Note</h2>
-                <div class="notes">\${escapeHtml(recipe.notes)}</div>
-              </section>
-            \` : ""}
 
             <div class="footer">
               Ultimo aggiornamento: \${state.updatedAt ? new Date(state.updatedAt).toLocaleString("it-IT") : "-"}

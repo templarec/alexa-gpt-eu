@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "b107b32055da87947b39f48a00f3cae308e21feb",
-  "gitShortCommit": "b107b32",
-  "gitCommitMessage": "refactor: extract kitchen page",
+  "gitCommit": "d4301bd8dd29b09f5e1454a3ee75378d1b120db6",
+  "gitShortCommit": "d4301bd",
+  "gitCommitMessage": "fix: kitchen page as before",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-29T20:33:53.184Z"
+  "deployedAt": "2026-04-29T20:37:16.919Z"
 }
