@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "d25c832d5d92981e0509be764bbf56015eec74a3",
-  "gitShortCommit": "d25c832",
-  "gitCommitMessage": "feat: parametric weekly context",
+  "gitCommit": "b9033049bf027216d644559c40f34e0043dbc203",
+  "gitShortCommit": "b903304",
+  "gitCommitMessage": "feat: save weekly context to sheets",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-27T10:16:46.668Z"
+  "deployedAt": "2026-04-27T10:53:39.863Z"
 }
