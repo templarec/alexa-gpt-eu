@@ -77,7 +77,7 @@ function getKitchenPageHtml() {
 
     h1 {
       margin: 0 0 8px 0;
-      font-size: clamp(28px, 4vw, 42px);
+      font-size: clamp(22px, 3vw, 32px);
       line-height: 1.1;
     }
 

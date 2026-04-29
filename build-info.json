@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "d4301bd8dd29b09f5e1454a3ee75378d1b120db6",
-  "gitShortCommit": "d4301bd",
-  "gitCommitMessage": "fix: kitchen page as before",
+  "gitCommit": "e1056c1ec95f68bb9b092d06a000d035352fb557",
+  "gitShortCommit": "e1056c1",
+  "gitCommitMessage": "fix: note removed, and scroll issue",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-29T20:37:16.919Z"
+  "deployedAt": "2026-04-29T20:41:34.598Z"
 }
