@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "b9033049bf027216d644559c40f34e0043dbc203",
-  "gitShortCommit": "b903304",
-  "gitCommitMessage": "feat: save weekly context to sheets",
+  "gitCommit": "b107b32055da87947b39f48a00f3cae308e21feb",
+  "gitShortCommit": "b107b32",
+  "gitCommitMessage": "refactor: extract kitchen page",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-27T10:53:39.863Z"
+  "deployedAt": "2026-04-29T20:33:53.184Z"
 }
