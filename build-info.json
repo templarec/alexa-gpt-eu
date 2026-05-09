@@ -1,10 +1,10 @@
 {
   "packageVersion": "1.0.0",
-  "gitCommit": "2c4aa0d7b1b57341e6e3e41cbfeebd2cc031719b",
-  "gitShortCommit": "2c4aa0d",
-  "gitCommitMessage": "fix: smaller title",
+  "gitCommit": "9fceeeeb5342f1ac42ee23110f5abdcbb99540a5",
+  "gitShortCommit": "9fceeee",
+  "gitCommitMessage": "fix: procedimento adaptive font",
   "gitBranch": "main",
   "gitTag": null,
   "gitDirty": true,
-  "deployedAt": "2026-04-29T20:43:29.538Z"
+  "deployedAt": "2026-04-29T20:45:27.039Z"
 }

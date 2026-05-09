@@ -8,6 +8,154 @@ const { calculateBmrMifflin, calculateBmrKatch } = require("./body-formulas");
 const { buildNormalizedActivityEntries } = require("./activity-normalizer");
 
 const KCAL_PER_KG = 7700;
+const ADAPTIVE_WINDOW_DAYS = 14;
+const MIN_ADAPTIVE_DAYS_COVERED = 7;
+const ROLLING_WEIGHT_WINDOW_DAYS = 7;
+const MIN_DAILY_INTAKE_FOR_ADAPTIVE = 1000;
+const MAX_WEIGHT_CHANGE_24H_RATIO = 0.01;
+const MAX_WEIGHT_CHANGE_48H_RATIO = 0.0125;
+const MAX_FILTERED_ADAPTIVE_MULTIPLIER = 1.2;
+const MANUAL_REVIEW_ADAPTIVE_MULTIPLIER = 1.25;
+
+function calculateRollingAverage(
+  values,
+  windowSize = ROLLING_WEIGHT_WINDOW_DAYS,
+) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return [];
+  }
+
+  return values.map((_, index) => {
+    const start = Math.max(0, index - windowSize + 1);
+    const slice = values.slice(start, index + 1).filter((value) => {
+      return Number.isFinite(value) && value > 0;
+    });
+
+    if (slice.length === 0) {
+      return null;
+    }
+
+    return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+  });
+}
+
+function isDailyWeightChangeSuspicious(
+  previousWeight,
+  currentWeight,
+  daysDiff,
+) {
+  if (!previousWeight || !currentWeight || !daysDiff) {
+    return false;
+  }
+
+  const changeRatio = Math.abs(currentWeight - previousWeight) / previousWeight;
+
+  if (daysDiff <= 1) {
+    return changeRatio > MAX_WEIGHT_CHANGE_24H_RATIO;
+  }
+
+  if (daysDiff <= 2) {
+    return changeRatio > MAX_WEIGHT_CHANGE_48H_RATIO;
+  }
+
+  return false;
+}
+
+function buildFilteredWeightSeries(dailyWeights) {
+  const sortedEntries = [...dailyWeights.entries()]
+    .map(([date, weight]) => ({ date, weight: Number(weight) }))
+    .filter(
+      (entry) =>
+        entry.date && Number.isFinite(entry.weight) && entry.weight > 0,
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (sortedEntries.length < 2) {
+    return [];
+  }
+
+  const filteredEntries = [];
+
+  for (const entry of sortedEntries) {
+    const previousEntry = filteredEntries[filteredEntries.length - 1];
+
+    if (previousEntry) {
+      const daysDiff = getDiffDays(previousEntry.date, entry.date);
+
+      if (
+        isDailyWeightChangeSuspicious(
+          previousEntry.weight,
+          entry.weight,
+          daysDiff,
+        )
+      ) {
+        continue;
+      }
+    }
+
+    filteredEntries.push(entry);
+  }
+
+  const rollingWeights = calculateRollingAverage(
+    filteredEntries.map((entry) => entry.weight),
+    ROLLING_WEIGHT_WINDOW_DAYS,
+  );
+
+  return filteredEntries
+    .map((entry, index) => ({
+      ...entry,
+      smoothedWeight: rollingWeights[index],
+    }))
+    .filter((entry) => Number.isFinite(entry.smoothedWeight));
+}
+
+function filterMealRowsForAdaptive(mealRows) {
+  const intakeByDate = new Map();
+
+  for (const row of mealRows) {
+    const date = String(row[0] || "").trim();
+    const calories = parseSheetNumber(row[4]);
+
+    if (!date) {
+      continue;
+    }
+
+    intakeByDate.set(date, (intakeByDate.get(date) || 0) + calories);
+  }
+
+  const validDates = new Set();
+
+  for (const [date, intake] of intakeByDate.entries()) {
+    if (intake >= MIN_DAILY_INTAKE_FOR_ADAPTIVE) {
+      validDates.add(date);
+    }
+  }
+
+  return mealRows.filter((row) => {
+    const date = String(row[0] || "").trim();
+    return validDates.has(date);
+  });
+}
+
+function capAdaptiveTdee(adaptiveTdeeRaw, formulaTdee) {
+  if (!Number.isFinite(adaptiveTdeeRaw) || !Number.isFinite(formulaTdee)) {
+    return {
+      adaptiveTdeeFiltered: null,
+      adaptiveTdeeCapped: false,
+      adaptiveTdeeSuspicious: false,
+    };
+  }
+
+  const cap = formulaTdee * MAX_FILTERED_ADAPTIVE_MULTIPLIER;
+  const adaptiveTdeeFiltered = Math.min(adaptiveTdeeRaw, cap);
+
+  return {
+    adaptiveTdeeFiltered: roundNumber(adaptiveTdeeFiltered, 0),
+    adaptiveTdeeCapped: adaptiveTdeeRaw > cap,
+    adaptiveTdeeSuspicious:
+      adaptiveTdeeRaw > formulaTdee * MANUAL_REVIEW_ADAPTIVE_MULTIPLIER,
+  };
+}
 
 async function getAverageWeightLast7Days(
   sheets,
@@ -112,9 +260,13 @@ async function getAverageBodyFatLast7Days(
 }
 
 async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
-  const last14Dates = getLastNDatesInclusive(endDateString, 14, {
-    includeEndDate: false,
-  });
+  const last14Dates = getLastNDatesInclusive(
+    endDateString,
+    ADAPTIVE_WINDOW_DAYS,
+    {
+      includeEndDate: false,
+    },
+  );
 
   if (last14Dates.length === 0) {
     return null;
@@ -137,9 +289,11 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
     }),
   ]);
 
-  const mealRows = (mealsResponse.data.values || [])
+  const rawMealRows = (mealsResponse.data.values || [])
     .slice(1)
     .filter((row) => dateSet.has(String(row[0] || "").trim()));
+
+  const mealRows = filterMealRowsForAdaptive(rawMealRows);
 
   const activityRows = (activityResponse.data.values || [])
     .slice(1)
@@ -148,6 +302,18 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
   const bodyRows = (bodyResponse.data.values || [])
     .slice(1)
     .filter((row) => dateSet.has(String(row[0] || "").trim()));
+
+  if (mealRows.length === 0) {
+    return null;
+  }
+
+  const coveredMealDates = new Set(
+    mealRows.map((row) => String(row[0] || "").trim()).filter(Boolean),
+  );
+
+  if (coveredMealDates.size < MIN_ADAPTIVE_DAYS_COVERED) {
+    return null;
+  }
 
   const dailyWeights = new Map();
 
@@ -162,30 +328,18 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
     dailyWeights.set(date, weight);
   }
 
-  const weightDates = [...dailyWeights.keys()].sort();
+  const filteredWeightSeries = buildFilteredWeightSeries(dailyWeights);
 
-  if (weightDates.length < 2) {
+  if (filteredWeightSeries.length < 2) {
     return null;
   }
 
-  if (mealRows.length === 0) {
-    return null;
-  }
+  const firstWeightEntry = filteredWeightSeries[0];
+  const lastWeightEntry = filteredWeightSeries[filteredWeightSeries.length - 1];
 
-  const coveredMealDates = new Set(
-    mealRows.map((row) => String(row[0] || "").trim()).filter(Boolean),
-  );
-
-  if (coveredMealDates.size < 7) {
-    return null;
-  }
-
-  const firstWeightDate = weightDates[0];
-  const lastWeightDate = weightDates[weightDates.length - 1];
-
-  const firstWeight = Number(dailyWeights.get(firstWeightDate));
-  const lastWeight = Number(dailyWeights.get(lastWeightDate));
-  const daysSpan = getDiffDays(firstWeightDate, lastWeightDate);
+  const firstWeight = Number(firstWeightEntry.smoothedWeight);
+  const lastWeight = Number(lastWeightEntry.smoothedWeight);
+  const daysSpan = getDiffDays(firstWeightEntry.date, lastWeightEntry.date);
 
   if (!firstWeight || !lastWeight || daysSpan < 3) {
     return null;
@@ -205,24 +359,37 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
 
   const daysCovered = coveredMealDates.size;
 
-  if (!daysCovered || daysCovered < 7) {
+  if (!daysCovered || daysCovered < MIN_ADAPTIVE_DAYS_COVERED) {
     return null;
   }
 
   const averageDailyIntake = totalMealIntake / daysCovered;
   const impliedDailyDeficit =
     ((firstWeight - lastWeight) * KCAL_PER_KG) / daysSpan;
-  const adaptiveTdee = averageDailyIntake + impliedDailyDeficit;
+  const adaptiveTdeeRaw = averageDailyIntake + impliedDailyDeficit;
 
   if (
-    !Number.isFinite(adaptiveTdee) ||
-    adaptiveTdee < 1200 ||
-    adaptiveTdee > 5000
+    !Number.isFinite(adaptiveTdeeRaw) ||
+    adaptiveTdeeRaw < 1200 ||
+    adaptiveTdeeRaw > 5000
   ) {
     return null;
   }
 
-  return roundNumber(adaptiveTdee, 0);
+  return {
+    adaptiveTdeeRaw: roundNumber(adaptiveTdeeRaw, 0),
+    daysCovered,
+    daysSpan,
+    totalMealIntake: roundNumber(totalMealIntake, 0),
+    totalActivity: roundNumber(totalActivity, 0),
+    averageDailyIntake: roundNumber(averageDailyIntake, 0),
+    impliedDailyDeficit: roundNumber(impliedDailyDeficit, 0),
+    firstWeight: roundNumber(firstWeight, 2),
+    lastWeight: roundNumber(lastWeight, 2),
+    firstWeightDate: firstWeightEntry.date,
+    lastWeightDate: lastWeightEntry.date,
+    filteredWeightPoints: filteredWeightSeries.length,
+  };
 }
 
 async function getDynamicTdee({
@@ -291,17 +458,21 @@ async function getDynamicTdee({
     return {
       formulaTdee,
       adaptiveTdee: null,
+      adaptiveTdeeRaw: null,
+      adaptiveTdeeFiltered: null,
+      adaptiveTdeeCapped: false,
+      adaptiveTdeeSuspicious: false,
       finalTdee: formulaTdee,
     };
   }
 
-  const adaptiveTdee = await getAdaptiveTdeeLast14Days(
+  const adaptiveTdeeResult = await getAdaptiveTdeeLast14Days(
     sheets,
     spreadsheetId,
     todayDate,
   );
 
-  if (!adaptiveTdee) {
+  if (!adaptiveTdeeResult) {
     console.log(
       "TDEE CALCULATION",
       JSON.stringify({
@@ -315,6 +486,10 @@ async function getDynamicTdee({
         extraActivity,
         formulaTdee,
         adaptiveTdee: null,
+        adaptiveTdeeRaw: null,
+        adaptiveTdeeFiltered: null,
+        adaptiveTdeeCapped: false,
+        adaptiveTdeeSuspicious: false,
         finalTdee: formulaTdee,
         model: "formula_only",
       }),
@@ -323,11 +498,31 @@ async function getDynamicTdee({
     return {
       formulaTdee,
       adaptiveTdee: null,
+      adaptiveTdeeRaw: null,
+      adaptiveTdeeFiltered: null,
+      adaptiveTdeeCapped: false,
+      adaptiveTdeeSuspicious: false,
       finalTdee: formulaTdee,
     };
   }
 
-  const finalTdee = roundNumber((formulaTdee + adaptiveTdee) / 2, 0);
+  const adaptiveTdeeRaw = adaptiveTdeeResult.adaptiveTdeeRaw;
+  const { adaptiveTdeeFiltered, adaptiveTdeeCapped, adaptiveTdeeSuspicious } =
+    capAdaptiveTdee(adaptiveTdeeRaw, formulaTdee);
+
+  if (!adaptiveTdeeFiltered) {
+    return {
+      formulaTdee,
+      adaptiveTdee: null,
+      adaptiveTdeeRaw,
+      adaptiveTdeeFiltered: null,
+      adaptiveTdeeCapped,
+      adaptiveTdeeSuspicious,
+      finalTdee: formulaTdee,
+    };
+  }
+
+  const finalTdee = roundNumber((formulaTdee + adaptiveTdeeFiltered) / 2, 0);
 
   console.log(
     "TDEE CALCULATION",
@@ -341,15 +536,26 @@ async function getDynamicTdee({
       baseActivityFactor,
       extraActivity,
       formulaTdee,
-      adaptiveTdee,
+      adaptiveTdee: adaptiveTdeeFiltered,
+      adaptiveTdeeRaw,
+      adaptiveTdeeFiltered,
+      adaptiveTdeeCapped,
+      adaptiveTdeeSuspicious,
+      adaptiveTdeeDetails: adaptiveTdeeResult,
       finalTdee,
-      model: "blended",
+      model: adaptiveTdeeCapped
+        ? "blended_filtered_capped"
+        : "blended_filtered",
     }),
   );
 
   return {
     formulaTdee,
-    adaptiveTdee,
+    adaptiveTdee: adaptiveTdeeFiltered,
+    adaptiveTdeeRaw,
+    adaptiveTdeeFiltered,
+    adaptiveTdeeCapped,
+    adaptiveTdeeSuspicious,
     finalTdee,
   };
 }
