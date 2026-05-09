@@ -10,6 +10,8 @@ const {
   getWeekDietContext,
   getAllMeals,
   upsertWeeklyStatsRow,
+  saveSilviaMealState,
+  getSilviaMealState,
 } = require("./sheets");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
@@ -34,6 +36,7 @@ const {
 } = require("./handlers/http/withings");
 const { DailySummaryIntentHandler } = require("./handlers/alexa/dailySummary");
 const { getKitchenPageHtml } = require("./views/kitchenPage");
+const { getSilviaPageHtml } = require("./views/silviaPage");
 
 const {
   postKitchenDisplay,
@@ -274,6 +277,49 @@ async function runWeeklyStatsBackfill() {
     results,
   };
 }
+
+function optionsSilvia() {
+  return {
+    statusCode: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type,x-api-key",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    },
+    body: "",
+  };
+}
+
+async function getSilviaCurrent() {
+  const state = await getSilviaMealState();
+
+  return jsonResponse(200, {
+    ok: true,
+    updatedAt: state.updatedAt,
+    payload: state.payload,
+  });
+}
+
+async function postSilviaDisplay(event) {
+  let payload;
+
+  try {
+    payload = JSON.parse(event.body || "{}");
+  } catch (error) {
+    return jsonResponse(400, {
+      ok: false,
+      error: "invalid_json",
+    });
+  }
+
+  const result = await saveSilviaMealState(payload);
+
+  return jsonResponse(200, {
+    ok: true,
+    updatedAt: result.updatedAt,
+  });
+}
+
 function buildMealHandler(intentName, mealType) {
   return {
     canHandle(handlerInput) {
@@ -685,16 +731,20 @@ async function httpHandler(event) {
     }
   }
 
-  const isPublicKitchenGet =
+  const isPublicDisplayGet =
     (path.includes("/kitchen") && method === "GET") ||
     (path.includes("/kitchen") && method === "OPTIONS") ||
     (path.includes("/kitchen/current") && method === "GET") ||
-    (path.includes("/kitchen/current") && method === "OPTIONS");
+    (path.includes("/kitchen/current") && method === "OPTIONS") ||
+    (path.includes("/silvia") && method === "GET") ||
+    (path.includes("/silvia") && method === "OPTIONS") ||
+    (path.includes("/silvia/current") && method === "GET") ||
+    (path.includes("/silvia/current") && method === "OPTIONS");
 
-  // Protect all HTTP routes except the Withings webhook and public kitchen display reads
+  // Protect all HTTP routes except the Withings webhook and public display reads
   if (
     !path.includes("/withings/webhook") &&
-    !isPublicKitchenGet &&
+    !isPublicDisplayGet &&
     !authorizeHttpRequest(event)
   ) {
     return jsonResponse(401, { error: "Unauthorized" });
@@ -754,6 +804,49 @@ async function httpHandler(event) {
 
   if (path.includes("/kitchen/current") && method === "GET") {
     return getKitchenCurrent();
+  }
+
+  if (
+    path.includes("/silvia") &&
+    !path.includes("/silvia/current") &&
+    !path.includes("/silvia/display") &&
+    method === "OPTIONS"
+  ) {
+    return optionsSilvia();
+  }
+
+  if (
+    path.includes("/silvia") &&
+    !path.includes("/silvia/current") &&
+    !path.includes("/silvia/display") &&
+    method === "GET"
+  ) {
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type,x-api-key",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      },
+      body: getSilviaPageHtml(),
+    };
+  }
+
+  if (path.includes("/silvia/display") && method === "OPTIONS") {
+    return optionsSilvia();
+  }
+
+  if (path.includes("/silvia/current") && method === "OPTIONS") {
+    return optionsSilvia();
+  }
+
+  if (path.includes("/silvia/display") && method === "POST") {
+    return postSilviaDisplay(event);
+  }
+
+  if (path.includes("/silvia/current") && method === "GET") {
+    return getSilviaCurrent();
   }
 
   if (path.includes("/withings/import-all") && method === "GET") {

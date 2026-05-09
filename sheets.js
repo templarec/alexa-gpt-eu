@@ -678,6 +678,65 @@ async function getKitchenState() {
     },
   };
 }
+
+async function saveSilviaMealState(payload) {
+  const sheets = await getSheetsClient();
+
+  const updatedAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "SilviaMeal!A2:B2",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[updatedAt, JSON.stringify(payload)]],
+    },
+  });
+
+  return {
+    updatedAt,
+    payload,
+  };
+}
+
+async function getSilviaMealState() {
+  const sheets = await getSheetsClient();
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.SHEET_ID,
+    range: "SilviaMeal!A2:B2",
+  });
+
+  const row = response.data.values?.[0];
+
+  if (!row || row.length === 0) {
+    return {
+      updatedAt: null,
+      payload: null,
+    };
+  }
+
+  try {
+    return {
+      updatedAt: row[0] || null,
+      payload: row[1] ? JSON.parse(row[1]) : null,
+    };
+  } catch (error) {
+    console.error(
+      "SILVIA MEAL JSON PARSE FAILED",
+      JSON.stringify({
+        updatedAt: row[0] || null,
+        error: error.message,
+      }),
+    );
+
+    return {
+      updatedAt: row[0] || null,
+      payload: null,
+    };
+  }
+}
+
 function getWeekRangeMondaySunday(referenceDate) {
   const date = new Date(`${referenceDate}T00:00:00Z`);
 
@@ -1337,4 +1396,6 @@ module.exports = {
   getAllMeals,
   saveKitchenState,
   getKitchenState,
+  saveSilviaMealState,
+  getSilviaMealState,
 };
