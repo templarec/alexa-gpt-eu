@@ -1,6 +1,16 @@
 const fs = require("fs");
 const { execSync } = require("child_process");
+function commandSucceeds(command) {
+  try {
+    execSync(command, {
+      stdio: "ignore",
+    });
 
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
 function safeExec(command, fallback = null) {
   try {
     return execSync(command, {
@@ -22,14 +32,21 @@ function getPackageVersion() {
 }
 
 function isGitDirty() {
-  try {
-    execSync("git diff --quiet && git diff --cached --quiet", {
-      stdio: "ignore",
-    });
-    return false;
-  } catch (error) {
-    return true;
-  }
+  const hasUnstagedChanges = !commandSucceeds("git diff --quiet");
+  const hasStagedChanges = !commandSucceeds("git diff --cached --quiet");
+
+  const untrackedFiles = safeExec(
+    "git ls-files --others --exclude-standard",
+    "",
+  )
+    .split("\n")
+    .map((file) => file.trim())
+    .filter(Boolean)
+    .filter((file) => file !== "build-info.json");
+
+  const hasUntrackedFiles = untrackedFiles.length > 0;
+
+  return hasUnstagedChanges || hasStagedChanges || hasUntrackedFiles;
 }
 
 const buildInfo = {
