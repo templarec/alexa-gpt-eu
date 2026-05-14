@@ -63,7 +63,6 @@ function getBuildInfo() {
   }
 }
 
-
 function getAwsRuntimeInfo() {
   return {
     functionName: process.env.AWS_LAMBDA_FUNCTION_NAME || null,
@@ -92,11 +91,14 @@ function tryParseJsonBody(event) {
 function resolveUserId(event, body = null) {
   const parsedBody = body || tryParseJsonBody(event);
   const queryParams = event?.queryStringParameters || {};
+  const headers = event?.headers || {};
 
   const fromBody = parsedBody?.user_id || parsedBody?.userId;
   const fromQuery = queryParams.user_id || queryParams.userId;
+  const fromHeader =
+    headers["x-user-id"] || headers["X-User-Id"] || headers["X-USER-ID"];
 
-  const rawUserId = fromBody || fromQuery || "lorenzo";
+  const rawUserId = fromBody || fromQuery || fromHeader || "lorenzo";
 
   return String(rawUserId).trim().toLowerCase() || "lorenzo";
 }
