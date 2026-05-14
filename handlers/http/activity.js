@@ -91,8 +91,16 @@ function shouldOverrideKomootCalories({
   return calories > estimatedCalories * 1.6;
 }
 
-async function createActivityFromHttp(event, { date, time }) {
+async function createActivityFromHttp(
+  event,
+  { date, time, userId = "lorenzo" },
+) {
   const body = parseJsonBody(event);
+
+  const normalizedUserId =
+    String(body.user_id || body.userId || userId || "lorenzo")
+      .trim()
+      .toLowerCase() || "lorenzo";
 
   const source = String(body.source || "").trim();
   const activityType = String(body.activity_type || "").trim();
@@ -157,7 +165,7 @@ async function createActivityFromHttp(event, { date, time }) {
     });
   }
 
-  let weightKg = await getLatestWeight();
+  let weightKg = await getLatestWeight(normalizedUserId);
 
   if (!weightKg) {
     weightKg = Number(process.env.USER_WEIGHT_KG || 95);
@@ -214,6 +222,7 @@ async function createActivityFromHttp(event, { date, time }) {
   }
 
   const row = [
+    normalizedUserId,
     activityDate,
     activityTime,
     source,
@@ -235,6 +244,7 @@ async function createActivityFromHttp(event, { date, time }) {
     console.log(
       "ACTIVITY UPDATED",
       JSON.stringify({
+        userId: normalizedUserId,
         date: activityDate,
         time: activityTime,
         source,
@@ -266,6 +276,7 @@ async function createActivityFromHttp(event, { date, time }) {
     console.log(
       "ACTIVITY SAVED",
       JSON.stringify({
+        userId: normalizedUserId,
         date: activityDate,
         time: activityTime,
         source,
@@ -283,6 +294,7 @@ async function createActivityFromHttp(event, { date, time }) {
   return jsonResponse(200, {
     success: true,
     saved: {
+      user_id: normalizedUserId,
       date: activityDate,
       time: activityTime,
       source,

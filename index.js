@@ -63,6 +63,7 @@ function getBuildInfo() {
   }
 }
 
+
 function getAwsRuntimeInfo() {
   return {
     functionName: process.env.AWS_LAMBDA_FUNCTION_NAME || null,
@@ -72,6 +73,32 @@ function getAwsRuntimeInfo() {
     logGroupName: process.env.AWS_LAMBDA_LOG_GROUP_NAME || null,
     logStreamName: process.env.AWS_LAMBDA_LOG_STREAM_NAME || null,
   };
+}
+
+// Helper to robustly parse request body as JSON
+function tryParseJsonBody(event) {
+  if (!event?.body) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(event.body);
+  } catch (error) {
+    return {};
+  }
+}
+
+// Helper to resolve the user ID from body or query params, fallback to "lorenzo"
+function resolveUserId(event, body = null) {
+  const parsedBody = body || tryParseJsonBody(event);
+  const queryParams = event?.queryStringParameters || {};
+
+  const fromBody = parsedBody?.user_id || parsedBody?.userId;
+  const fromQuery = queryParams.user_id || queryParams.userId;
+
+  const rawUserId = fromBody || fromQuery || "lorenzo";
+
+  return String(rawUserId).trim().toLowerCase() || "lorenzo";
 }
 
 async function invokeInternalWithingsWebhook(payload) {
@@ -676,6 +703,8 @@ async function httpHandler(event) {
   const path = event.rawPath || event.path || "/";
   const method =
     event.requestContext?.http?.method || event.httpMethod || "GET";
+  const requestBody = tryParseJsonBody(event);
+  const userId = resolveUserId(event, requestBody);
 
   // Withings webhook (no auth)
   if (path.includes("/withings/webhook") && method === "POST") {
@@ -893,17 +922,17 @@ async function httpHandler(event) {
 
   if (path.includes("/activity") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
-    return createActivityFromHttp(event, { date, time });
+    return createActivityFromHttp(event, { date, time, userId });
   }
 
   if (path.includes("/meals/today") && method === "GET") {
     const { date } = getDateTimeParts(TIMEZONE);
-    return getMealsToday({ date });
+    return getMealsToday({ date, userId });
   }
 
   if (path.includes("/meals/analyze") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
-    return createAnalyzedMealFromHttp(event, { date, time });
+    return createAnalyzedMealFromHttp(event, { date, time, userId });
   }
   if (path.includes("/admin/backfill-weekly-stats") && method === "POST") {
     const result = await runWeeklyStatsBackfill();
@@ -916,7 +945,7 @@ async function httpHandler(event) {
     const queryParams = event.queryStringParameters || {};
     const referenceDate = queryParams.date || today;
 
-    const context = await getWeekDietContext(referenceDate);
+    const context = await getWeekDietContext(referenceDate, { userId });
 
     return jsonResponse(200, {
       ok: true,
@@ -925,16 +954,16 @@ async function httpHandler(event) {
   }
   if (path.includes("/diet/today") && method === "GET") {
     const { date } = getDateTimeParts(TIMEZONE);
-    return handleGetDietToday({ date });
+    return handleGetDietToday({ date, userId });
   }
 
   if (path.includes("/meals") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
-    return createMealFromHttp(event, { date, time });
+    return createMealFromHttp(event, { date, time, userId });
   }
 
   if (path.includes("/meals") && method === "GET") {
-    return exportMeals();
+    return exportMeals({ userId });
   }
 
   if (path.includes("/withings/latest") && method === "GET") {

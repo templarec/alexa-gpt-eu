@@ -44,6 +44,106 @@ function setCache(entry, value) {
   entry.expiresAt = Date.now() + CACHE_TTL_MS;
 }
 
+const DEFAULT_USER_ID = "lorenzo";
+
+function normalizeUserId(userId) {
+  return (
+    String(userId || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
+}
+
+function isIsoDateLike(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+function hasUserIdColumn(row) {
+  return !isIsoDateLike(row?.[0]) && isIsoDateLike(row?.[1]);
+}
+
+function getCacheDateKey(date, userId) {
+  return `${normalizeUserId(userId)}:${date}`;
+}
+
+function normalizeMealRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    time: row[offset + 1] || "",
+    meal_type: row[offset + 2] || "",
+    description: row[offset + 3] || "",
+    calories: parseSheetNumber(row[offset + 4]),
+    protein: parseSheetNumber(row[offset + 5]),
+    carbs: parseSheetNumber(row[offset + 6]),
+    fat: parseSheetNumber(row[offset + 7]),
+    raw: row,
+  };
+}
+
+function normalizeActivityRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    time: row[offset + 1] || "",
+    source: row[offset + 2] || "",
+    activity_type: row[offset + 3] || "",
+    description: row[offset + 4] || "",
+    calories: parseSheetNumber(row[offset + 5]),
+    distance_km: parseSheetNumber(row[offset + 6]),
+    duration_min: parseSheetNumber(row[offset + 7]),
+    steps: parseSheetNumber(row[offset + 8]),
+    avg_speed_kmh: parseSheetNumber(row[offset + 9]),
+    source_id: row[offset + 10] || "",
+    source_url: row[offset + 11] || "",
+    raw_json: row[offset + 12] || "",
+    raw: row,
+    offset,
+  };
+}
+
+function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    time: row[offset + 1] || "",
+    source: row[offset + 2] || "",
+    weight: parseSheetNumber(row[offset + 3]),
+    bodyFat:
+      row[offset + 4] === "" || row[offset + 4] == null
+        ? null
+        : parseSheetNumber(row[offset + 4]),
+    muscleMass:
+      row[offset + 5] === "" || row[offset + 5] == null
+        ? null
+        : parseSheetNumber(row[offset + 5]),
+    waterMass:
+      row[offset + 6] === "" || row[offset + 6] == null
+        ? null
+        : parseSheetNumber(row[offset + 6]),
+    fatMass:
+      row[offset + 7] === "" || row[offset + 7] == null
+        ? null
+        : parseSheetNumber(row[offset + 7]),
+    leanMass:
+      row[offset + 8] === "" || row[offset + 8] == null
+        ? null
+        : parseSheetNumber(row[offset + 8]),
+    rawJson: row[offset + 9] || "",
+    raw: row,
+    offset,
+  };
+}
+
 function getGoogleCredentials() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
@@ -79,21 +179,25 @@ async function appendMealRow(row) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: "Meals!A:H",
+    range: row.length >= 9 ? "Meals!A:I" : "Meals!A:H",
     valueInputOption: "RAW",
     requestBody: {
       values: [row],
     },
   });
 
-  const mealDate = row[0] || "";
+  const meal = normalizeMealRow(row);
+  const mealDate = meal.date;
+  const mealUserId = meal.user_id;
 
   if (
     isCacheValid(cache.todayMeals) &&
-    cache.todayMeals.value?.date === mealDate
+    cache.todayMeals.value?.key === getCacheDateKey(mealDate, mealUserId)
   ) {
     setCache(cache.todayMeals, {
+      key: getCacheDateKey(mealDate, mealUserId),
       date: mealDate,
+      userId: mealUserId,
       rows: [...cache.todayMeals.value.rows, row],
     });
   }
@@ -104,32 +208,35 @@ async function appendBodyRow(row) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: "Body!A:J",
+    range: row.length >= 11 ? "Body!A:K" : "Body!A:J",
     valueInputOption: "RAW",
     requestBody: {
       values: [row],
     },
   });
 
+  const body = normalizeBodyRow(row);
+
   let sourceDate = null;
   try {
-    const rawGroup = JSON.parse(row[9] || "{}");
+    const rawGroup = JSON.parse(body.rawJson || "{}");
     sourceDate = rawGroup.date ?? null;
   } catch (error) {
     sourceDate = null;
   }
 
   const cachedBody = {
-    date: row[0] || "",
-    time: row[1] || "",
-    source: row[2] || "",
-    weight: Number(row[3] || 0),
-    bodyFat: row[4] === "" || row[4] == null ? null : Number(row[4]),
-    muscleMass: row[5] === "" || row[5] == null ? null : Number(row[5]),
-    waterMass: row[6] === "" || row[6] == null ? null : Number(row[6]),
-    fatMass: row[7] === "" || row[7] == null ? null : Number(row[7]),
-    leanMass: row[8] === "" || row[8] == null ? null : Number(row[8]),
-    rawJson: row[9] || "",
+    user_id: body.user_id,
+    date: body.date,
+    time: body.time,
+    source: body.source,
+    weight: body.weight,
+    bodyFat: body.bodyFat,
+    muscleMass: body.muscleMass,
+    waterMass: body.waterMass,
+    fatMass: body.fatMass,
+    leanMass: body.leanMass,
+    rawJson: body.rawJson,
     sourceDate,
   };
 
@@ -148,28 +255,35 @@ async function appendBodyRow(row) {
 
 async function appendActivityRow(row) {
   const sheets = await getSheetsClient();
-  const sourceId = row[10];
-  const date = row[0] || "";
-  const source = row[2] || "";
+  const activity = normalizeActivityRow(row);
+  const sourceId = activity.source_id;
+  const date = activity.date;
+  const source = activity.source;
+  const userId = activity.user_id;
 
-  if (sourceId && (await hasActivitySourceId(sourceId))) {
+  if (sourceId && (await hasActivitySourceId(sourceId, userId))) {
     if (String(sourceId).startsWith("withings-steps-")) {
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.SHEET_ID,
-        range: "activity!A:M",
+        range: "activity!A:N",
       });
 
       const rows = res.data.values || [];
-      const existingIndex = rows.findIndex(
-        (r, idx) => idx > 0 && r[10] === String(sourceId),
-      );
+      const existingIndex = rows.findIndex((r, idx) => {
+        if (idx === 0) return false;
+        const existingActivity = normalizeActivityRow(r);
+        return (
+          existingActivity.source_id === String(sourceId) &&
+          existingActivity.user_id === userId
+        );
+      });
 
       if (existingIndex !== -1) {
         const sheetRowNumber = existingIndex + 1;
 
         await sheets.spreadsheets.values.update({
           spreadsheetId: process.env.SHEET_ID,
-          range: `activity!A${sheetRowNumber}:M${sheetRowNumber}`,
+          range: `activity!A${sheetRowNumber}:N${sheetRowNumber}`,
           valueInputOption: "RAW",
           requestBody: {
             values: [row],
@@ -178,11 +292,11 @@ async function appendActivityRow(row) {
 
         if (
           isCacheValid(cache.todayActivities) &&
-          cache.todayActivities.value?.date === date
+          cache.todayActivities.value?.key === getCacheDateKey(date, userId)
         ) {
           const currentRows = [...(cache.todayActivities.value.rows || [])];
           const cachedIndex = currentRows.findIndex(
-            (r) => r[10] === String(sourceId),
+            (r) => normalizeActivityRow(r).source_id === String(sourceId),
           );
 
           if (cachedIndex !== -1) {
@@ -192,7 +306,9 @@ async function appendActivityRow(row) {
           }
 
           setCache(cache.todayActivities, {
+            key: getCacheDateKey(date, userId),
             date,
+            userId,
             rows: currentRows,
           });
         }
@@ -232,7 +348,7 @@ async function appendActivityRow(row) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: "activity!A:M",
+    range: row.length >= 14 ? "activity!A:N" : "activity!A:M",
     valueInputOption: "RAW",
     requestBody: {
       values: [row],
@@ -249,21 +365,30 @@ async function appendActivityRow(row) {
   );
 
   if (sourceId) {
-    const currentIds = isCacheValid(cache.activitySourceIds)
-      ? cache.activitySourceIds.value
-      : [];
+    const sourceIdsCacheKey = `activitySourceIds:${userId}`;
+    const currentIds =
+      isCacheValid(cache.activitySourceIds) &&
+      cache.activitySourceIds.value?.key === sourceIdsCacheKey
+        ? cache.activitySourceIds.value.sourceIds
+        : [];
 
     if (!currentIds.includes(String(sourceId))) {
-      setCache(cache.activitySourceIds, [...currentIds, String(sourceId)]);
+      setCache(cache.activitySourceIds, {
+        key: sourceIdsCacheKey,
+        userId,
+        sourceIds: [...currentIds, String(sourceId)],
+      });
     }
   }
 
   if (
     isCacheValid(cache.todayActivities) &&
-    cache.todayActivities.value?.date === date
+    cache.todayActivities.value?.key === getCacheDateKey(date, userId)
   ) {
     setCache(cache.todayActivities, {
+      key: getCacheDateKey(date, userId),
       date,
+      userId,
       rows: [...cache.todayActivities.value.rows, row],
     });
   }
@@ -275,35 +400,51 @@ async function appendActivityRow(row) {
   };
 }
 
-async function hasActivitySourceId(sourceId) {
+async function hasActivitySourceId(sourceId, userId = DEFAULT_USER_ID) {
   if (!sourceId) {
     return false;
   }
 
-  if (isCacheValid(cache.activitySourceIds)) {
-    return cache.activitySourceIds.value.includes(String(sourceId));
+  const normalizedUserId = normalizeUserId(userId);
+  const cacheKey = `activitySourceIds:${normalizedUserId}`;
+
+  if (
+    isCacheValid(cache.activitySourceIds) &&
+    cache.activitySourceIds.value?.key === cacheKey
+  ) {
+    return cache.activitySourceIds.value.sourceIds.includes(String(sourceId));
   }
 
   const sheets = await getSheetsClient();
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "activity!K:K",
+    range: "activity!A:N",
   });
 
   const sourceIds = (response.data.values || [])
-    .flat()
     .slice(1)
-    .filter(Boolean)
-    .map(String);
+    .map((row) => normalizeActivityRow(row))
+    .filter((activity) => activity.user_id === normalizedUserId)
+    .map((activity) => String(activity.source_id || ""))
+    .filter(Boolean);
 
-  setCache(cache.activitySourceIds, sourceIds);
+  setCache(cache.activitySourceIds, {
+    key: cacheKey,
+    userId: normalizedUserId,
+    sourceIds,
+  });
 
   return sourceIds.includes(String(sourceId));
 }
 
-async function getLastBodyRow() {
-  if (isCacheValid(cache.lastBodyRow)) {
+async function getLastBodyRow(userId = DEFAULT_USER_ID) {
+  const normalizedUserId = normalizeUserId(userId);
+
+  if (
+    isCacheValid(cache.lastBodyRow) &&
+    cache.lastBodyRow.value?.user_id === normalizedUserId
+  ) {
     return cache.lastBodyRow.value;
   }
 
@@ -311,7 +452,7 @@ async function getLastBodyRow() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "Body!A:J",
+    range: "Body!A:K",
   });
 
   const rows = response.data.values || [];
@@ -321,27 +462,38 @@ async function getLastBodyRow() {
     return null;
   }
 
-  const last = rows[rows.length - 1];
+  const matchingRows = rows
+    .slice(1)
+    .map((row) => normalizeBodyRow(row, normalizedUserId))
+    .filter((row) => row.user_id === normalizedUserId);
+
+  if (matchingRows.length === 0) {
+    setCache(cache.lastBodyRow, null);
+    return null;
+  }
+
+  const last = matchingRows[matchingRows.length - 1];
   let sourceDate = null;
 
   try {
-    const rawGroup = JSON.parse(last[9] || "{}");
+    const rawGroup = JSON.parse(last.rawJson || "{}");
     sourceDate = rawGroup.date ?? null;
   } catch (error) {
     sourceDate = null;
   }
 
   const result = {
-    date: last[0] || "",
-    time: last[1] || "",
-    source: last[2] || "",
-    weight: Number(last[3] || 0),
-    bodyFat: last[4] === "" || last[4] == null ? null : Number(last[4]),
-    muscleMass: last[5] === "" || last[5] == null ? null : Number(last[5]),
-    waterMass: last[6] === "" || last[6] == null ? null : Number(last[6]),
-    fatMass: last[7] === "" || last[7] == null ? null : Number(last[7]),
-    leanMass: last[8] === "" || last[8] == null ? null : Number(last[8]),
-    rawJson: last[9] || "",
+    user_id: last.user_id,
+    date: last.date,
+    time: last.time,
+    source: last.source,
+    weight: last.weight,
+    bodyFat: last.bodyFat,
+    muscleMass: last.muscleMass,
+    waterMass: last.waterMass,
+    fatMass: last.fatMass,
+    leanMass: last.leanMass,
+    rawJson: last.rawJson,
     sourceDate,
   };
 
@@ -350,8 +502,8 @@ async function getLastBodyRow() {
   return result;
 }
 
-async function getLatestWeight() {
-  const last = await getLastBodyRow();
+async function getLatestWeight(userId = DEFAULT_USER_ID) {
+  const last = await getLastBodyRow(userId);
 
   if (!last || !last.weight) {
     return null;
@@ -867,66 +1019,80 @@ function buildVarietyWarnings(foodFrequency) {
   return warnings;
 }
 
-async function getMealRowsByDateRange(startDate, endDate) {
+async function getMealRowsByDateRange(
+  startDate,
+  endDate,
+  userId = DEFAULT_USER_ID,
+) {
   const sheets = await getSheetsClient();
+  const normalizedUserId = normalizeUserId(userId);
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-
-    range: "Meals!A:H",
+    range: "Meals!A:I",
   });
 
   const rows = response.data.values || [];
 
-  return rows
-
-    .slice(1)
-
-    .filter((row) => isDateInRange(row[0], startDate, endDate));
+  return rows.slice(1).filter((row) => {
+    const meal = normalizeMealRow(row, normalizedUserId);
+    return (
+      meal.user_id === normalizedUserId &&
+      isDateInRange(meal.date, startDate, endDate)
+    );
+  });
 }
 
-async function getActivityRowsByDateRange(startDate, endDate) {
+async function getActivityRowsByDateRange(
+  startDate,
+  endDate,
+  userId = DEFAULT_USER_ID,
+) {
   const sheets = await getSheetsClient();
+  const normalizedUserId = normalizeUserId(userId);
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-
-    range: "activity!A:M",
+    range: "activity!A:N",
   });
 
   const rows = response.data.values || [];
 
-  return rows
-
-    .slice(1)
-
-    .filter((row) => isDateInRange(row[0], startDate, endDate));
+  return rows.slice(1).filter((row) => {
+    const activity = normalizeActivityRow(row, normalizedUserId);
+    return (
+      activity.user_id === normalizedUserId &&
+      isDateInRange(activity.date, startDate, endDate)
+    );
+  });
 }
 
-async function getWeekDietContext(referenceDate) {
+async function getWeekDietContext(referenceDate, options = {}) {
+  const userId = normalizeUserId(options.userId);
   const { weekStart, weekEnd } = getWeekRangeMondaySunday(referenceDate);
 
-  const mealRows = await getMealRowsByDateRange(weekStart, weekEnd);
+  const mealRows = await getMealRowsByDateRange(weekStart, weekEnd, userId);
 
-  const activityRows = await getActivityRowsByDateRange(weekStart, weekEnd);
+  const activityRows = await getActivityRowsByDateRange(
+    weekStart,
+    weekEnd,
+    userId,
+  );
 
-  const meals = mealRows.map((row) => ({
-    date: String(row[0] || "").trim(),
+  const meals = mealRows.map((row) => {
+    const meal = normalizeMealRow(row, userId);
 
-    time: row[1] || "",
-
-    meal_type: row[2] || "",
-
-    description: row[3] || "",
-
-    calories: parseSheetNumber(row[4]),
-
-    protein: parseSheetNumber(row[5]),
-
-    carbs: parseSheetNumber(row[6]),
-
-    fat: parseSheetNumber(row[7]),
-  }));
+    return {
+      date: meal.date,
+      time: meal.time,
+      meal_type: meal.meal_type,
+      description: meal.description,
+      calories: meal.calories,
+      protein: meal.protein,
+      carbs: meal.carbs,
+      fat: meal.fat,
+    };
+  });
 
   const activitiesByDate = {};
 
@@ -936,30 +1102,23 @@ async function getWeekDietContext(referenceDate) {
     if (!mealTotalsByDate[meal.date]) {
       mealTotalsByDate[meal.date] = {
         intake: 0,
-
         protein: 0,
-
         carbs: 0,
-
         fat: 0,
-
         mealsCount: 0,
       };
     }
 
     mealTotalsByDate[meal.date].intake += meal.calories;
-
     mealTotalsByDate[meal.date].protein += meal.protein;
-
     mealTotalsByDate[meal.date].carbs += meal.carbs;
-
     mealTotalsByDate[meal.date].fat += meal.fat;
-
     mealTotalsByDate[meal.date].mealsCount += 1;
   }
 
   for (const row of activityRows) {
-    const date = String(row[0] || "").trim();
+    const activity = normalizeActivityRow(row, userId);
+    const date = activity.date;
 
     if (!activitiesByDate[date]) {
       activitiesByDate[date] = [];
@@ -971,17 +1130,11 @@ async function getWeekDietContext(referenceDate) {
   const days = [];
 
   let totalIntake = 0;
-
   let totalActivity = 0;
-
   let totalProtein = 0;
-
   let totalCarbs = 0;
-
   let totalFat = 0;
-
   let totalTarget = 0;
-
   let totalDeficit = 0;
 
   const start = new Date(`${weekStart}T00:00:00Z`);
@@ -990,20 +1143,14 @@ async function getWeekDietContext(referenceDate) {
 
   for (let i = 0; i < 7; i++) {
     const current = new Date(start);
-
     current.setUTCDate(start.getUTCDate() + i);
-
     const date = current.toISOString().slice(0, 10);
 
     const mealTotals = mealTotalsByDate[date] || {
       intake: 0,
-
       protein: 0,
-
       carbs: 0,
-
       fat: 0,
-
       mealsCount: 0,
     };
 
@@ -1013,57 +1160,38 @@ async function getWeekDietContext(referenceDate) {
 
     const activity = roundNumber(
       normalizedActivities.reduce((sum, entry) => sum + entry.calories, 0),
-
       0,
     );
 
     const intake = roundNumber(mealTotals.intake, 0);
-
     const net = roundNumber(intake + activity, 0);
-
     const target = manualTarget;
-
     const deficit = roundNumber(target - net, 0);
 
     if (target != null) {
       totalTarget += target;
     }
-
     if (deficit != null) {
       totalDeficit += deficit;
     }
 
     totalIntake += intake;
-
     totalActivity += activity;
-
     totalProtein += mealTotals.protein;
-
     totalCarbs += mealTotals.carbs;
-
     totalFat += mealTotals.fat;
 
     days.push({
       date,
-
       intake,
-
       activity,
-
       net,
-
       target,
-
       remaining: deficit,
-
       protein: roundNumber(mealTotals.protein, 1),
-
       carbs: roundNumber(mealTotals.carbs, 1),
-
       fat: roundNumber(mealTotals.fat, 1),
-
       meals_count: mealTotals.mealsCount,
-
       activities_count: normalizedActivities.length,
     });
   }
@@ -1072,52 +1200,37 @@ async function getWeekDietContext(referenceDate) {
 
   return {
     week_start: weekStart,
-
     week_end: weekEnd,
-
     summary: {
       intake: roundNumber(totalIntake, 0),
-
       activity: roundNumber(totalActivity, 0),
-
       net: roundNumber(totalIntake + totalActivity, 0),
-
       target: roundNumber(totalTarget, 0),
-
       remaining: roundNumber(totalDeficit, 0),
-
       protein: roundNumber(totalProtein, 1),
-
       carbs: roundNumber(totalCarbs, 1),
-
       fat: roundNumber(totalFat, 1),
-
       avg_daily_intake: roundNumber(totalIntake / 7, 0),
-
       avg_daily_net: roundNumber((totalIntake + totalActivity) / 7, 0),
     },
-
     days,
-
     recent_meals: meals.slice(-20).map((meal) => ({
       date: meal.date,
-
       meal_type: meal.meal_type,
-
       description: meal.description,
-
       calories: meal.calories,
     })),
-
     food_frequency: foodFrequency,
-
     variety_warnings: buildVarietyWarnings(foodFrequency),
   };
 }
-async function getTodayRows(todayDate) {
+async function getTodayRows(todayDate, userId = DEFAULT_USER_ID) {
+  const normalizedUserId = normalizeUserId(userId);
+  const cacheKey = getCacheDateKey(todayDate, normalizedUserId);
+
   if (
     isCacheValid(cache.todayMeals) &&
-    cache.todayMeals.value?.date === todayDate
+    cache.todayMeals.value?.key === cacheKey
   ) {
     return cache.todayMeals.value.rows;
   }
@@ -1126,28 +1239,43 @@ async function getTodayRows(todayDate) {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "Meals!A:H",
+    range: "Meals!A:I",
   });
 
   const rows = response.data.values || [];
 
   if (rows.length <= 1) {
-    setCache(cache.todayMeals, { date: todayDate, rows: [] });
+    setCache(cache.todayMeals, {
+      key: cacheKey,
+      date: todayDate,
+      userId: normalizedUserId,
+      rows: [],
+    });
     return [];
   }
 
-  const filtered = rows
-    .slice(1)
-    .filter((row) => String(row[0] || "").trim() === todayDate);
-  setCache(cache.todayMeals, { date: todayDate, rows: filtered });
+  const filtered = rows.slice(1).filter((row) => {
+    const meal = normalizeMealRow(row, normalizedUserId);
+    return meal.user_id === normalizedUserId && meal.date === todayDate;
+  });
+
+  setCache(cache.todayMeals, {
+    key: cacheKey,
+    date: todayDate,
+    userId: normalizedUserId,
+    rows: filtered,
+  });
 
   return filtered;
 }
 
-async function getTodayActivityRows(todayDate) {
+async function getTodayActivityRows(todayDate, userId = DEFAULT_USER_ID) {
+  const normalizedUserId = normalizeUserId(userId);
+  const cacheKey = getCacheDateKey(todayDate, normalizedUserId);
+
   if (
     isCacheValid(cache.todayActivities) &&
-    cache.todayActivities.value?.date === todayDate
+    cache.todayActivities.value?.key === cacheKey
   ) {
     return cache.todayActivities.value.rows;
   }
@@ -1156,32 +1284,47 @@ async function getTodayActivityRows(todayDate) {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "activity!A:M",
+    range: "activity!A:N",
   });
 
   const rows = response.data.values || [];
 
   if (rows.length <= 1) {
-    setCache(cache.todayActivities, { date: todayDate, rows: [] });
+    setCache(cache.todayActivities, {
+      key: cacheKey,
+      date: todayDate,
+      userId: normalizedUserId,
+      rows: [],
+    });
     return [];
   }
 
-  const filtered = rows
-    .slice(1)
-    .filter((row) => String(row[0] || "").trim() === todayDate);
-  setCache(cache.todayActivities, { date: todayDate, rows: filtered });
+  const filtered = rows.slice(1).filter((row) => {
+    const activity = normalizeActivityRow(row, normalizedUserId);
+    return activity.user_id === normalizedUserId && activity.date === todayDate;
+  });
+
+  setCache(cache.todayActivities, {
+    key: cacheKey,
+    date: todayDate,
+    userId: normalizedUserId,
+    rows: filtered,
+  });
 
   return filtered;
 }
 
-async function getTodayRunningTotal(todayDate) {
-  const rows = await getTodayRows(todayDate);
+async function getTodayRunningTotal(todayDate, userId = DEFAULT_USER_ID) {
+  const rows = await getTodayRows(todayDate, userId);
 
-  return rows.reduce((sum, row) => sum + parseSheetNumber(row[4]), 0);
+  return rows.reduce((sum, row) => {
+    const meal = normalizeMealRow(row, userId);
+    return sum + meal.calories;
+  }, 0);
 }
 
-async function getTodaySummary(todayDate) {
-  const rows = await getTodayRows(todayDate);
+async function getTodaySummary(todayDate, userId = DEFAULT_USER_ID) {
+  const rows = await getTodayRows(todayDate, userId);
 
   let calories = 0;
   let protein = 0;
@@ -1189,10 +1332,11 @@ async function getTodaySummary(todayDate) {
   let fat = 0;
 
   for (const row of rows) {
-    calories += parseSheetNumber(row[4]);
-    protein += parseSheetNumber(row[5]);
-    carbs += parseSheetNumber(row[6]);
-    fat += parseSheetNumber(row[7]);
+    const meal = normalizeMealRow(row, userId);
+    calories += meal.calories;
+    protein += meal.protein;
+    carbs += meal.carbs;
+    fat += meal.fat;
   }
 
   return {
@@ -1210,24 +1354,28 @@ async function getTodayDietReport(
   options = {},
 ) {
   const { skipDailyStatsSnapshot = false } = options;
-  const rows = await getTodayRows(todayDate);
-  const activityRows = await getTodayActivityRows(todayDate);
+  const userId = normalizeUserId(options.userId);
+
+  const rows = await getTodayRows(todayDate, userId);
+  const activityRows = await getTodayActivityRows(todayDate, userId);
 
   let runningTotal = 0;
 
   const meals = rows.map((row) => {
-    const calories = parseSheetNumber(row[4]);
+    const meal = normalizeMealRow(row, userId);
+    const calories = meal.calories;
     runningTotal += calories;
 
     return {
-      date: row[0] || "",
-      time: row[1] || "",
-      meal_type: row[2] || "",
-      description: row[3] || "",
+      user_id: meal.user_id,
+      date: meal.date,
+      time: meal.time,
+      meal_type: meal.meal_type,
+      description: meal.description,
       calories,
-      protein: parseSheetNumber(row[5]),
-      carbs: parseSheetNumber(row[6]),
-      fat: parseSheetNumber(row[7]),
+      protein: meal.protein,
+      carbs: meal.carbs,
+      fat: meal.fat,
       running_total: runningTotal,
     };
   });
@@ -1311,11 +1459,8 @@ async function getTodayDietReport(
     carbs,
     fat,
     target: resolvedTarget,
-
     tdee_formula: tdeeData?.formulaTdee ?? null,
-
     tdee_adaptive: tdeeData?.adaptiveTdee ?? null,
-
     tdee: resolvedTdee,
     remaining,
     deficit,
@@ -1343,6 +1488,7 @@ async function getTodayDietReport(
         weight: averageWeightLast7Days,
         bodyFat: averageBodyFatLast7Days,
         notes: JSON.stringify({
+          userId,
           mealsCount: meals.length,
           activitiesCount: activities.length,
           adaptiveModel: true,
@@ -1355,6 +1501,7 @@ async function getTodayDietReport(
 
   return {
     date: todayDate,
+    user_id: userId,
     summary,
     meals,
   };
@@ -1365,7 +1512,7 @@ async function getAllMeals() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "Meals!A:H",
+    range: "Meals!A:I",
   });
 
   return response.data.values || [];
