@@ -20,6 +20,10 @@ const { authorizeHttpRequest, jsonResponse } = require("./utils/http");
 const { handleGetDietToday } = require("./handlers/http/diet");
 const { createActivityFromHttp } = require("./handlers/http/activity");
 const {
+  createBodyFromHttp,
+  getLatestBodyFromHttp,
+} = require("./handlers/http/body");
+const {
   exportMeals,
   createMealFromHttp,
   createAnalyzedMealFromHttp,
@@ -154,6 +158,7 @@ async function processWithingsWebhookAsync(payload) {
       const time = measureDate.toTimeString().slice(0, 5);
 
       await appendBodyRow([
+        "lorenzo",
         date,
         time,
         "withings",
@@ -211,7 +216,7 @@ async function processWithingsWebhookAsync(payload) {
           source_url: activity.sourceUrl,
         }),
       },
-      { date: activity.activityDate, time: "00:00" },
+      { date: activity.activityDate, time: "00:00", userId: "lorenzo" },
     );
 
     return {
@@ -901,6 +906,7 @@ async function httpHandler(event) {
       const time = measureDate.toTimeString().slice(0, 5);
 
       await appendBodyRow([
+        "lorenzo",
         date,
         time,
         "withings",
@@ -925,6 +931,15 @@ async function httpHandler(event) {
   if (path.includes("/activity") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
     return createActivityFromHttp(event, { date, time, userId });
+  }
+
+  if (path.includes("/body/latest") && method === "GET") {
+    return getLatestBodyFromHttp({ userId });
+  }
+
+  if (path.includes("/body") && method === "POST") {
+    const { date, time } = getDateTimeParts(TIMEZONE);
+    return createBodyFromHttp(event, { date, time, userId });
   }
 
   if (path.includes("/meals/today") && method === "GET") {
@@ -983,7 +998,7 @@ async function httpHandler(event) {
     const date = measureDate.toISOString().slice(0, 10);
     const time = measureDate.toTimeString().slice(0, 5);
 
-    const last = await getLastBodyRow();
+    const last = await getLastBodyRow("lorenzo");
 
     if (last && String(last.sourceDate) === String(latest.sourceDate)) {
       return jsonResponse(200, {
@@ -1000,6 +1015,7 @@ async function httpHandler(event) {
     }
 
     await appendBodyRow([
+      "lorenzo",
       date,
       time,
       "withings",
@@ -1015,6 +1031,7 @@ async function httpHandler(event) {
     return jsonResponse(200, {
       success: true,
       saved: {
+        user_id: "lorenzo",
         date,
         time,
         source: "withings",
