@@ -54,6 +54,22 @@ function normalizeUserId(userId) {
   );
 }
 
+// Helper to get user-specific config value, falling back to global.
+async function getUserConfigValue(key, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const userSpecificValue = await getConfigValue(`${key}_${normalizedUserId}`);
+
+  if (
+    userSpecificValue !== null &&
+    userSpecificValue !== undefined &&
+    userSpecificValue !== ""
+  ) {
+    return userSpecificValue;
+  }
+
+  return await getConfigValue(key);
+}
+
 function isIsoDateLike(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -1139,7 +1155,8 @@ async function getWeekDietContext(referenceDate, options = {}) {
 
   const start = new Date(`${weekStart}T00:00:00Z`);
   const manualTarget =
-    parseSheetNumber(await getConfigValue("diet_target_manual")) || 1750;
+    parseSheetNumber(await getUserConfigValue("diet_target_manual", userId)) ||
+    1750;
 
   for (let i = 0; i < 7; i++) {
     const current = new Date(start);
@@ -1408,16 +1425,18 @@ async function getTodayDietReport(
   const net = roundNumber(intake + activity, 0);
 
   const targetMode = String(
-    (await getConfigValue("diet_target_mode")) || "manual",
+    (await getUserConfigValue("diet_target_mode", userId)) || "manual",
   )
     .trim()
     .toLowerCase();
 
   const manualTarget =
-    parseSheetNumber(await getConfigValue("diet_target_manual")) || 1750;
+    parseSheetNumber(await getUserConfigValue("diet_target_manual", userId)) ||
+    1750;
 
   const deficitKcal =
-    parseSheetNumber(await getConfigValue("diet_deficit_kcal")) || 700;
+    parseSheetNumber(await getUserConfigValue("diet_deficit_kcal", userId)) ||
+    700;
 
   const explicitTarget =
     targetCalories == null || targetCalories === ""

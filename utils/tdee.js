@@ -27,6 +27,21 @@ function normalizeUserId(userId) {
   );
 }
 
+async function getUserConfigValue(getConfigValue, key, userId) {
+  const normalizedUserId = normalizeUserId(userId);
+  const userSpecificValue = await getConfigValue(`${key}_${normalizedUserId}`);
+
+  if (
+    userSpecificValue !== null &&
+    userSpecificValue !== undefined &&
+    userSpecificValue !== ""
+  ) {
+    return userSpecificValue;
+  }
+
+  return await getConfigValue(key);
+}
+
 function isIsoDateLike(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -503,13 +518,32 @@ async function getDynamicTdee({
     normalizedUserId,
   );
 
-  const sex = (await getConfigValue("user_sex")) || fallbackSex;
-  const age = Number(await getConfigValue("user_age")) || fallbackAge;
+  const sex =
+    (await getUserConfigValue(getConfigValue, "user_sex", normalizedUserId)) ||
+    fallbackSex;
+
+  const age =
+    Number(
+      await getUserConfigValue(getConfigValue, "user_age", normalizedUserId),
+    ) || fallbackAge;
+
   const heightCm =
-    Number(await getConfigValue("user_height_cm")) || fallbackHeightCm;
+    Number(
+      await getUserConfigValue(
+        getConfigValue,
+        "user_height_cm",
+        normalizedUserId,
+      ),
+    ) || fallbackHeightCm;
+
   const baseActivityFactor =
-    Number(await getConfigValue("base_activity_factor")) ||
-    fallbackBaseActivityFactor;
+    Number(
+      await getUserConfigValue(
+        getConfigValue,
+        "base_activity_factor",
+        normalizedUserId,
+      ),
+    ) || fallbackBaseActivityFactor;
 
   const weightKg = Number(averageWeightLast7Days || fallbackWeightKg);
 
@@ -579,6 +613,9 @@ async function getDynamicTdee({
         bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
         bmr: roundNumber(bmr, 0),
         baseActivityFactor,
+        sex,
+        age,
+        heightCm,
         extraActivity,
         formulaTdee,
         adaptiveTdee: null,
@@ -631,6 +668,9 @@ async function getDynamicTdee({
       bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
       bmr: roundNumber(bmr, 0),
       baseActivityFactor,
+      sex,
+      age,
+      heightCm,
       extraActivity,
       formulaTdee,
       adaptiveTdee: adaptiveTdeeFiltered,
