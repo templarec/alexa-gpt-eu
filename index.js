@@ -102,9 +102,23 @@ function resolveUserId(event, body = null) {
   const fromHeader =
     headers["x-user-id"] || headers["X-User-Id"] || headers["X-USER-ID"];
 
-  const rawUserId = fromBody || fromQuery || fromHeader || "lorenzo";
+  if (fromBody || fromQuery || fromHeader) {
+    const rawUserId = fromBody || fromQuery || fromHeader;
+    return String(rawUserId).trim().toLowerCase() || "lorenzo";
+  }
 
-  return String(rawUserId).trim().toLowerCase() || "lorenzo";
+  const apiKey =
+    headers["x-api-key"] || headers["X-Api-Key"] || headers["X-API-KEY"];
+
+  if (
+    process.env.API_KEY_ELISA &&
+    apiKey &&
+    String(apiKey) === String(process.env.API_KEY_ELISA)
+  ) {
+    return "elisa";
+  }
+
+  return "lorenzo";
 }
 
 async function invokeInternalWithingsWebhook(payload) {
