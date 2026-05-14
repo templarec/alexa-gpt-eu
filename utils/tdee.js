@@ -17,6 +17,60 @@ const MAX_WEIGHT_CHANGE_48H_RATIO = 0.0125;
 const MAX_FILTERED_ADAPTIVE_MULTIPLIER = 1.2;
 const MANUAL_REVIEW_ADAPTIVE_MULTIPLIER = 1.25;
 
+const DEFAULT_USER_ID = "lorenzo";
+
+function normalizeUserId(userId) {
+  return (
+    String(userId || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
+}
+
+function isIsoDateLike(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+function hasUserIdColumn(row) {
+  return !isIsoDateLike(row?.[0]) && isIsoDateLike(row?.[1]);
+}
+
+function normalizeMealRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    calories: parseSheetNumber(row[offset + 4]),
+    raw: row,
+  };
+}
+
+function normalizeActivityRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    raw: row,
+  };
+}
+
+function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
+  const hasUserId = hasUserIdColumn(row);
+  const offset = hasUserId ? 1 : 0;
+
+  return {
+    user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
+    date: String(row[offset + 0] || "").trim(),
+    weight: parseSheetNumber(row[offset + 3]),
+    bodyFat: parseSheetNumber(row[offset + 4]),
+    raw: row,
+  };
+}
+
 function calculateRollingAverage(
   values,
   windowSize = ROLLING_WEIGHT_WINDOW_DAYS,
@@ -109,12 +163,13 @@ function buildFilteredWeightSeries(dailyWeights) {
     .filter((entry) => Number.isFinite(entry.smoothedWeight));
 }
 
-function filterMealRowsForAdaptive(mealRows) {
+function filterMealRowsForAdaptive(mealRows, userId = DEFAULT_USER_ID) {
   const intakeByDate = new Map();
 
   for (const row of mealRows) {
-    const date = String(row[0] || "").trim();
-    const calories = parseSheetNumber(row[4]);
+    const meal = normalizeMealRow(row, userId);
+    const date = meal.date;
+    const calories = meal.calories;
 
     if (!date) {
       continue;
@@ -132,8 +187,8 @@ function filterMealRowsForAdaptive(mealRows) {
   }
 
   return mealRows.filter((row) => {
-    const date = String(row[0] || "").trim();
-    return validDates.has(date);
+    const meal = normalizeMealRow(row, userId);
+    return validDates.has(meal.date);
   });
 }
 
@@ -161,10 +216,11 @@ async function getAverageWeightLast7Days(
   sheets,
   spreadsheetId,
   todayDate = null,
+  userId = DEFAULT_USER_ID,
 ) {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Body!A:J",
+    range: "Body!A:K",
   });
 
   const rows = response.data.values || [];
@@ -182,12 +238,19 @@ async function getAverageWeightLast7Days(
   }
 
   const dailyWeights = new Map();
+  const normalizedUserId = normalizeUserId(userId);
 
   for (const row of rows.slice(1)) {
-    const date = String(row[0] || "").trim();
-    const weight = parseSheetNumber(row[3]);
+    const body = normalizeBodyRow(row, normalizedUserId);
+    const date = body.date;
+    const weight = body.weight;
 
-    if (!date || !weight || !allowedDates.has(date)) {
+    if (
+      body.user_id !== normalizedUserId ||
+      !date ||
+      !weight ||
+      !allowedDates.has(date)
+    ) {
       continue;
     }
 
@@ -212,10 +275,11 @@ async function getAverageBodyFatLast7Days(
   sheets,
   spreadsheetId,
   todayDate = null,
+  userId = DEFAULT_USER_ID,
 ) {
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Body!A:J",
+    range: "Body!A:K",
   });
 
   const rows = response.data.values || [];
@@ -233,12 +297,19 @@ async function getAverageBodyFatLast7Days(
   }
 
   const dailyBodyFat = new Map();
+  const normalizedUserId = normalizeUserId(userId);
 
   for (const row of rows.slice(1)) {
-    const date = String(row[0] || "").trim();
-    const bodyFat = parseSheetNumber(row[4]);
+    const body = normalizeBodyRow(row, normalizedUserId);
+    const date = body.date;
+    const bodyFat = body.bodyFat;
 
-    if (!date || !bodyFat || !allowedDates.has(date)) {
+    if (
+      body.user_id !== normalizedUserId ||
+      !date ||
+      !bodyFat ||
+      !allowedDates.has(date)
+    ) {
       continue;
     }
 
@@ -259,7 +330,12 @@ async function getAverageBodyFatLast7Days(
   return roundNumber(average, 2);
 }
 
-async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
+async function getAdaptiveTdeeLast14Days(
+  sheets,
+  spreadsheetId,
+  endDateString,
+  userId = DEFAULT_USER_ID,
+) {
   const last14Dates = getLastNDatesInclusive(
     endDateString,
     ADAPTIVE_WINDOW_DAYS,
@@ -273,42 +349,54 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
   }
 
   const dateSet = new Set(last14Dates);
+  const normalizedUserId = normalizeUserId(userId);
 
   const [mealsResponse, activityResponse, bodyResponse] = await Promise.all([
     sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "Meals!A:H",
+      range: "Meals!A:I",
     }),
     sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "activity!A:M",
+      range: "activity!A:N",
     }),
     sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: "Body!A:J",
+      range: "Body!A:K",
     }),
   ]);
 
   const rawMealRows = (mealsResponse.data.values || [])
     .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
+    .filter((row) => {
+      const meal = normalizeMealRow(row, normalizedUserId);
+      return meal.user_id === normalizedUserId && dateSet.has(meal.date);
+    });
 
-  const mealRows = filterMealRowsForAdaptive(rawMealRows);
+  const mealRows = filterMealRowsForAdaptive(rawMealRows, normalizedUserId);
 
   const activityRows = (activityResponse.data.values || [])
     .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
+    .filter((row) => {
+      const activity = normalizeActivityRow(row, normalizedUserId);
+      return (
+        activity.user_id === normalizedUserId && dateSet.has(activity.date)
+      );
+    });
 
-  const bodyRows = (bodyResponse.data.values || [])
-    .slice(1)
-    .filter((row) => dateSet.has(String(row[0] || "").trim()));
+  const bodyRows = (bodyResponse.data.values || []).slice(1).filter((row) => {
+    const body = normalizeBodyRow(row, normalizedUserId);
+    return body.user_id === normalizedUserId && dateSet.has(body.date);
+  });
 
   if (mealRows.length === 0) {
     return null;
   }
 
   const coveredMealDates = new Set(
-    mealRows.map((row) => String(row[0] || "").trim()).filter(Boolean),
+    mealRows
+      .map((row) => normalizeMealRow(row, normalizedUserId).date)
+      .filter(Boolean),
   );
 
   if (coveredMealDates.size < MIN_ADAPTIVE_DAYS_COVERED) {
@@ -318,8 +406,9 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
   const dailyWeights = new Map();
 
   for (const row of bodyRows) {
-    const date = String(row[0] || "").trim();
-    const weight = parseSheetNumber(row[3]);
+    const body = normalizeBodyRow(row, normalizedUserId);
+    const date = body.date;
+    const weight = body.weight;
 
     if (!date || !weight) {
       continue;
@@ -345,10 +434,10 @@ async function getAdaptiveTdeeLast14Days(sheets, spreadsheetId, endDateString) {
     return null;
   }
 
-  const totalMealIntake = mealRows.reduce(
-    (sum, row) => sum + parseSheetNumber(row[4]),
-    0,
-  );
+  const totalMealIntake = mealRows.reduce((sum, row) => {
+    const meal = normalizeMealRow(row, normalizedUserId);
+    return sum + meal.calories;
+  }, 0);
 
   const normalizedActivities = buildNormalizedActivityEntries(activityRows);
 
@@ -403,11 +492,15 @@ async function getDynamicTdee({
   fallbackAge = 31,
   fallbackHeightCm = 181,
   fallbackBaseActivityFactor = 1.2,
+  userId = DEFAULT_USER_ID,
 }) {
+  const normalizedUserId = normalizeUserId(userId);
+
   const averageWeightLast7Days = await getAverageWeightLast7Days(
     sheets,
     spreadsheetId,
     todayDate,
+    normalizedUserId,
   );
 
   const sex = (await getConfigValue("user_sex")) || fallbackSex;
@@ -431,6 +524,7 @@ async function getDynamicTdee({
     sheets,
     spreadsheetId,
     todayDate,
+    normalizedUserId,
   );
 
   const bmrKatch = calculateBmrKatch({
@@ -470,6 +564,7 @@ async function getDynamicTdee({
     sheets,
     spreadsheetId,
     todayDate,
+    normalizedUserId,
   );
 
   if (!adaptiveTdeeResult) {
@@ -477,6 +572,7 @@ async function getDynamicTdee({
       "TDEE CALCULATION",
       JSON.stringify({
         todayDate,
+        userId: normalizedUserId,
         weightKg,
         bodyFatPercent,
         bmrMifflin: roundNumber(bmrMifflin, 0),
@@ -528,6 +624,7 @@ async function getDynamicTdee({
     "TDEE CALCULATION",
     JSON.stringify({
       todayDate,
+      userId: normalizedUserId,
       weightKg,
       bodyFatPercent,
       bmrMifflin: roundNumber(bmrMifflin, 0),

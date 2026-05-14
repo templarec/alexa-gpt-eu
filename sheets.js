@@ -1435,6 +1435,7 @@ async function getTodayDietReport(
     fallbackAge: Number(process.env.USER_AGE) || 31,
     fallbackHeightCm: Number(process.env.USER_HEIGHT_CM) || 181,
     fallbackBaseActivityFactor: Number(process.env.BASE_ACTIVITY_FACTOR) || 1.2,
+    userId,
   });
 
   const resolvedTdee =
@@ -1474,12 +1475,14 @@ async function getTodayDietReport(
         sheets,
         process.env.SHEET_ID,
         todayDate,
+        userId,
       );
 
       const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
         sheets,
         process.env.SHEET_ID,
         todayDate,
+        userId,
       );
 
       await saveDailyStatsSnapshot({
