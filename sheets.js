@@ -614,46 +614,60 @@ async function setConfigValue(key, value) {
 
 async function upsertDailyStatsRow(row) {
   const sheets = await getSheetsClient();
-  const date = String(row[0] || "").trim();
+  const hasUserId = hasUserIdColumn(row);
+  const userId = normalizeUserId(hasUserId ? row[0] : DEFAULT_USER_ID);
+  const date = String(row[hasUserId ? 1 : 0] || "").trim();
 
   if (!date) {
     throw new Error("DailyStats row missing date");
   }
 
+  const normalizedRow = hasUserId ? row : [userId, ...row];
+
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "DailyStats!A:L",
+    range: "DailyStats!A:M",
   });
 
   const rows = response.data.values || [];
-  const existingIndex = rows.findIndex(
-    (existingRow, idx) =>
-      idx > 0 && String(existingRow[0] || "").trim() === date,
-  );
+  const existingIndex = rows.findIndex((existingRow, idx) => {
+    if (idx === 0) return false;
+
+    const existingHasUserId = hasUserIdColumn(existingRow);
+    const existingUserId = normalizeUserId(
+      existingHasUserId ? existingRow[0] : DEFAULT_USER_ID,
+    );
+    const existingDate = String(
+      existingRow[existingHasUserId ? 1 : 0] || "",
+    ).trim();
+
+    return existingUserId === userId && existingDate === date;
+  });
 
   if (existingIndex !== -1) {
     const rowNumber = existingIndex + 1;
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SHEET_ID,
-      range: `DailyStats!A${rowNumber}:L${rowNumber}`,
+      range: `DailyStats!A${rowNumber}:M${rowNumber}`,
       valueInputOption: "RAW",
       requestBody: {
-        values: [row],
+        values: [normalizedRow],
       },
     });
 
     console.log(
       "DAILY STATS ROW UPDATED",
       JSON.stringify({
+        userId,
         date,
         rowNumber,
-        intake: row[1],
-        activity: row[2],
-        net: row[3],
-        target: row[4],
-        tdeeFinal: row[7],
-        deficit: row[8],
+        intake: normalizedRow[2],
+        activity: normalizedRow[3],
+        net: normalizedRow[4],
+        target: normalizedRow[5],
+        tdeeFinal: normalizedRow[8],
+        deficit: normalizedRow[9],
       }),
     );
 
@@ -666,23 +680,24 @@ async function upsertDailyStatsRow(row) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: "DailyStats!A:L",
+    range: "DailyStats!A:M",
     valueInputOption: "RAW",
     requestBody: {
-      values: [row],
+      values: [normalizedRow],
     },
   });
 
   console.log(
     "DAILY STATS ROW APPENDED",
     JSON.stringify({
+      userId,
       date,
-      intake: row[1],
-      activity: row[2],
-      net: row[3],
-      target: row[4],
-      tdeeFinal: row[7],
-      deficit: row[8],
+      intake: normalizedRow[2],
+      activity: normalizedRow[3],
+      net: normalizedRow[4],
+      target: normalizedRow[5],
+      tdeeFinal: normalizedRow[8],
+      deficit: normalizedRow[9],
     }),
   );
 
@@ -694,6 +709,7 @@ async function upsertDailyStatsRow(row) {
 
 async function upsertWeeklyStatsRow(data) {
   const sheets = await getSheetsClient();
+  const userId = normalizeUserId(data.user_id || data.userId);
   const weekStart = String(data.week_start || "").trim();
 
   if (!weekStart) {
@@ -701,6 +717,7 @@ async function upsertWeeklyStatsRow(data) {
   }
 
   const row = [
+    userId,
     data.week_start || "",
     data.week_end || "",
     data.intake ?? 0,
@@ -720,21 +737,25 @@ async function upsertWeeklyStatsRow(data) {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: "WeeklyStats!A:O",
+    range: "WeeklyStats!A:P",
   });
 
   const rows = response.data.values || [];
-  const existingIndex = rows.findIndex(
-    (existingRow, idx) =>
-      idx > 0 && String(existingRow[0] || "").trim() === weekStart,
-  );
+  const existingIndex = rows.findIndex((existingRow, idx) => {
+    if (idx === 0) return false;
+
+    const existingUserId = normalizeUserId(existingRow[0]);
+    const existingWeekStart = String(existingRow[1] || "").trim();
+
+    return existingUserId === userId && existingWeekStart === weekStart;
+  });
 
   if (existingIndex !== -1) {
     const rowNumber = existingIndex + 1;
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SHEET_ID,
-      range: `WeeklyStats!A${rowNumber}:O${rowNumber}`,
+      range: `WeeklyStats!A${rowNumber}:P${rowNumber}`,
       valueInputOption: "RAW",
       requestBody: {
         values: [row],
@@ -750,7 +771,7 @@ async function upsertWeeklyStatsRow(data) {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: "WeeklyStats!A:O",
+    range: "WeeklyStats!A:P",
     valueInputOption: "RAW",
     requestBody: {
       values: [row],
@@ -764,13 +785,17 @@ async function upsertWeeklyStatsRow(data) {
 }
 
 async function saveDailyStatsSnapshot({
+  userId = DEFAULT_USER_ID,
   date,
   summary,
   weight,
   bodyFat,
   notes,
 }) {
+  const normalizedUserId = normalizeUserId(userId);
+
   const row = [
+    normalizedUserId,
     date,
     summary?.intake ?? 0,
     Math.abs(Number(summary?.activity || 0)),
@@ -790,16 +815,17 @@ async function saveDailyStatsSnapshot({
   console.log(
     "DAILY STATS SNAPSHOT SAVED",
     JSON.stringify({
+      userId: normalizedUserId,
       date,
       updated: result?.updated ?? false,
-      intake: row[1],
-      activity: row[2],
-      net: row[3],
-      target: row[4],
-      tdeeFinal: row[7],
-      deficit: row[8],
-      weight: row[9],
-      bodyFat: row[10],
+      intake: row[2],
+      activity: row[3],
+      net: row[4],
+      target: row[5],
+      tdeeFinal: row[8],
+      deficit: row[9],
+      weight: row[10],
+      bodyFat: row[11],
     }),
   );
 
@@ -1241,6 +1267,7 @@ async function getWeekDietContext(referenceDate, options = {}) {
   const foodFrequency = buildFoodFrequency(meals);
 
   return {
+    user_id: userId,
     week_start: weekStart,
     week_end: weekEnd,
     summary: {
@@ -1532,6 +1559,7 @@ async function getTodayDietReport(
       );
 
       await saveDailyStatsSnapshot({
+        userId,
         date: todayDate,
         summary,
         weight: averageWeightLast7Days,

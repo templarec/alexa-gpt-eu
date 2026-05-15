@@ -251,15 +251,22 @@ function getMonday(dateString) {
   return date.toISOString().slice(0, 10);
 }
 
-async function runWeeklyStatsBackfill() {
-  console.log("WEEKLY BACKFILL START");
+async function runWeeklyStatsBackfill(userId = "lorenzo") {
+  console.log("WEEKLY BACKFILL START", JSON.stringify({ userId }));
 
   const rows = await getAllMeals();
 
   const uniqueDates = new Set();
 
   for (const row of rows) {
-    const date = String(row[0] || "").trim();
+    const rowUserId = String(row[0] || "lorenzo")
+      .trim()
+      .toLowerCase();
+    const date = String(row[1] || "").trim();
+
+    if (rowUserId !== userId) {
+      continue;
+    }
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       uniqueDates.add(date);
@@ -277,6 +284,7 @@ async function runWeeklyStatsBackfill() {
   console.log(
     "WEEKLY BACKFILL WEEKS FOUND",
     JSON.stringify({
+      userId,
       count: sortedWeeks.length,
       weeks: sortedWeeks,
     }),
@@ -285,11 +293,15 @@ async function runWeeklyStatsBackfill() {
   const results = [];
 
   for (const weekStart of sortedWeeks) {
-    console.log("WEEKLY BACKFILL PROCESSING", weekStart);
+    console.log(
+      "WEEKLY BACKFILL PROCESSING",
+      JSON.stringify({ userId, weekStart }),
+    );
 
-    const context = await getWeekDietContext(weekStart);
+    const context = await getWeekDietContext(weekStart, { userId });
 
     const result = await upsertWeeklyStatsRow({
+      user_id: userId,
       week_start: context.week_start,
       week_end: context.week_end,
       intake: context.summary.intake,
@@ -308,6 +320,7 @@ async function runWeeklyStatsBackfill() {
     });
 
     results.push({
+      user_id: userId,
       week_start: context.week_start,
       week_end: context.week_end,
       updated: result.updated,
@@ -316,11 +329,12 @@ async function runWeeklyStatsBackfill() {
 
   console.log(
     "WEEKLY BACKFILL DONE",
-    JSON.stringify({ count: results.length }),
+    JSON.stringify({ userId, count: results.length }),
   );
 
   return {
     ok: true,
+    user_id: userId,
     count: results.length,
     results,
   };
@@ -966,7 +980,7 @@ async function httpHandler(event) {
     return createAnalyzedMealFromHttp(event, { date, time, userId });
   }
   if (path.includes("/admin/backfill-weekly-stats") && method === "POST") {
-    const result = await runWeeklyStatsBackfill();
+    const result = await runWeeklyStatsBackfill(userId);
 
     return jsonResponse(200, result);
   }
