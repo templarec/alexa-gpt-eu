@@ -340,8 +340,13 @@ async function runWeeklyStatsBackfill(userId = "lorenzo") {
   };
 }
 
-async function runDailyStatsBackfill(userId = "lorenzo") {
-  console.log("DAILY BACKFILL START", JSON.stringify({ userId }));
+async function runDailyStatsBackfill(userId = "lorenzo", options = {}) {
+  const { date: requestedDate = null, limit = null } = options;
+
+  console.log(
+    "DAILY BACKFILL START",
+    JSON.stringify({ userId, requestedDate, limit }),
+  );
 
   const rows = await getAllMeals();
   const uniqueDates = new Set();
@@ -369,12 +374,32 @@ async function runDailyStatsBackfill(userId = "lorenzo") {
     }
   }
 
-  const sortedDates = [...uniqueDates].sort();
+  let sortedDates = [...uniqueDates].sort();
+
+  if (requestedDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+      return {
+        ok: false,
+        error: "invalid_date",
+        message: "Use date format YYYY-MM-DD",
+      };
+    }
+
+    sortedDates = sortedDates.includes(requestedDate) ? [requestedDate] : [];
+  }
+
+  const parsedLimit = Number(limit || 0);
+
+  if (!requestedDate && parsedLimit > 0) {
+    sortedDates = sortedDates.slice(0, parsedLimit);
+  }
 
   console.log(
     "DAILY BACKFILL DATES FOUND",
     JSON.stringify({
       userId,
+      requestedDate,
+      limit: parsedLimit || null,
       count: sortedDates.length,
       dates: sortedDates,
     }),
@@ -402,6 +427,8 @@ async function runDailyStatsBackfill(userId = "lorenzo") {
   return {
     ok: true,
     user_id: userId,
+    requested_date: requestedDate,
+    limit: parsedLimit || null,
     count: results.length,
     results,
   };
@@ -1052,9 +1079,13 @@ async function httpHandler(event) {
     return jsonResponse(200, result);
   }
   if (path.includes("/admin/backfill-daily-stats") && method === "POST") {
-    const result = await runDailyStatsBackfill(userId);
+    const queryParams = event.queryStringParameters || {};
+    const result = await runDailyStatsBackfill(userId, {
+      date: queryParams.date || null,
+      limit: queryParams.limit || null,
+    });
 
-    return jsonResponse(200, result);
+    return jsonResponse(result.ok === false ? 400 : 200, result);
   }
   if (path.includes("/diet/week-context") && method === "GET") {
     const { date: today } = getDateTimeParts(TIMEZONE);
