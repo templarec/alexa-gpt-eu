@@ -6,6 +6,7 @@ const {
 } = require("./numbers-and-dates");
 const { calculateBmrMifflin, calculateBmrKatch } = require("./body-formulas");
 const { buildNormalizedActivityEntries } = require("./activity-normalizer");
+const { maybeDecryptBodyNumber } = require("./crypto");
 
 const KCAL_PER_KG = 7700;
 const ADAPTIVE_WINDOW_DAYS = 14;
@@ -77,13 +78,33 @@ function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
   const hasUserId = hasUserIdColumn(row);
   const offset = hasUserId ? 1 : 0;
 
+  const parseBodyNumber = (value) => {
+    if (value === "" || value == null) {
+      return null;
+    }
+
+    return maybeDecryptBodyNumber(value);
+  };
+
   return {
     user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
     date: String(row[offset + 0] || "").trim(),
-    weight: parseSheetNumber(row[offset + 3]),
-    bodyFat: parseSheetNumber(row[offset + 4]),
+    weight: parseBodyNumber(row[offset + 3]),
+    bodyFat: parseBodyNumber(row[offset + 4]),
     raw: row,
   };
+}
+
+function redactSensitiveTdeeLogValue(userId, value) {
+  if (
+    normalizeUserId(userId) === "elisa" &&
+    value !== null &&
+    value !== undefined
+  ) {
+    return "[encrypted]";
+  }
+
+  return value;
 }
 
 function calculateRollingAverage(
@@ -607,8 +628,11 @@ async function getDynamicTdee({
       JSON.stringify({
         todayDate,
         userId: normalizedUserId,
-        weightKg,
-        bodyFatPercent,
+        weightKg: redactSensitiveTdeeLogValue(normalizedUserId, weightKg),
+        bodyFatPercent: redactSensitiveTdeeLogValue(
+          normalizedUserId,
+          bodyFatPercent,
+        ),
         bmrMifflin: roundNumber(bmrMifflin, 0),
         bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
         bmr: roundNumber(bmr, 0),
@@ -662,8 +686,11 @@ async function getDynamicTdee({
     JSON.stringify({
       todayDate,
       userId: normalizedUserId,
-      weightKg,
-      bodyFatPercent,
+      weightKg: redactSensitiveTdeeLogValue(normalizedUserId, weightKg),
+      bodyFatPercent: redactSensitiveTdeeLogValue(
+        normalizedUserId,
+        bodyFatPercent,
+      ),
       bmrMifflin: roundNumber(bmrMifflin, 0),
       bmrKatch: bmrKatch ? roundNumber(bmrKatch, 0) : null,
       bmr: roundNumber(bmr, 0),
@@ -678,7 +705,14 @@ async function getDynamicTdee({
       adaptiveTdeeFiltered,
       adaptiveTdeeCapped,
       adaptiveTdeeSuspicious,
-      adaptiveTdeeDetails: adaptiveTdeeResult,
+      adaptiveTdeeDetails:
+        normalizedUserId === "elisa"
+          ? {
+              ...adaptiveTdeeResult,
+              firstWeight: "[encrypted]",
+              lastWeight: "[encrypted]",
+            }
+          : adaptiveTdeeResult,
       finalTdee,
       model: adaptiveTdeeCapped
         ? "blended_filtered_capped"

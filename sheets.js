@@ -1,5 +1,10 @@
 const { google } = require("googleapis");
+
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
+const {
+  maybeEncryptBodyValue,
+  maybeDecryptBodyNumber,
+} = require("./utils/crypto");
 
 const {
   buildNormalizedActivityEntries,
@@ -151,36 +156,51 @@ function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
   const hasUserId = hasUserIdColumn(row);
   const offset = hasUserId ? 1 : 0;
 
+  const encryptedAwareNumber = (value) => {
+    if (value === "" || value == null) {
+      return null;
+    }
+
+    return maybeDecryptBodyNumber(value);
+  };
+
   return {
     user_id: normalizeUserId(hasUserId ? row[0] : fallbackUserId),
     date: String(row[offset + 0] || "").trim(),
     time: row[offset + 1] || "",
     source: row[offset + 2] || "",
-    weight: parseSheetNumber(row[offset + 3]),
-    bodyFat:
-      row[offset + 4] === "" || row[offset + 4] == null
-        ? null
-        : parseSheetNumber(row[offset + 4]),
-    muscleMass:
-      row[offset + 5] === "" || row[offset + 5] == null
-        ? null
-        : parseSheetNumber(row[offset + 5]),
-    waterMass:
-      row[offset + 6] === "" || row[offset + 6] == null
-        ? null
-        : parseSheetNumber(row[offset + 6]),
-    fatMass:
-      row[offset + 7] === "" || row[offset + 7] == null
-        ? null
-        : parseSheetNumber(row[offset + 7]),
-    leanMass:
-      row[offset + 8] === "" || row[offset + 8] == null
-        ? null
-        : parseSheetNumber(row[offset + 8]),
+    weight: encryptedAwareNumber(row[offset + 3]),
+    bodyFat: encryptedAwareNumber(row[offset + 4]),
+    muscleMass: encryptedAwareNumber(row[offset + 5]),
+    waterMass: encryptedAwareNumber(row[offset + 6]),
+    fatMass: encryptedAwareNumber(row[offset + 7]),
+    leanMass: encryptedAwareNumber(row[offset + 8]),
     rawJson: row[offset + 9] || "",
     raw: row,
     offset,
   };
+}
+
+function encryptBodyRowForStorage(row) {
+  const hasUserId = hasUserIdColumn(row);
+  const userId = normalizeUserId(hasUserId ? row[0] : DEFAULT_USER_ID);
+
+  if (userId !== "elisa") {
+    return row;
+  }
+
+  const offset = hasUserId ? 1 : 0;
+  const encryptedRow = [...row];
+
+  for (const index of [3, 4, 5, 6, 7, 8]) {
+    const columnIndex = offset + index;
+    encryptedRow[columnIndex] = maybeEncryptBodyValue(
+      userId,
+      encryptedRow[columnIndex],
+    );
+  }
+
+  return encryptedRow;
 }
 
 function getGoogleCredentials() {
@@ -244,17 +264,18 @@ async function appendMealRow(row) {
 
 async function appendBodyRow(row) {
   const sheets = await getSheetsClient();
+  const rowForStorage = encryptBodyRowForStorage(row);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
-    range: row.length >= 11 ? "Body!A:K" : "Body!A:J",
+    range: rowForStorage.length >= 11 ? "Body!A:K" : "Body!A:J",
     valueInputOption: "RAW",
     requestBody: {
-      values: [row],
+      values: [rowForStorage],
     },
   });
 
-  const body = normalizeBodyRow(row);
+  const body = normalizeBodyRow(rowForStorage);
 
   let sourceDate = null;
   try {
@@ -284,10 +305,11 @@ async function appendBodyRow(row) {
   console.log(
     "SHEET BODY ROW WRITTEN",
     JSON.stringify({
+      userId: cachedBody.user_id,
       date: cachedBody.date,
       time: cachedBody.time,
       source: cachedBody.source,
-      weight: cachedBody.weight,
+      encrypted: cachedBody.user_id === "elisa",
     }),
   );
 }
@@ -544,7 +566,7 @@ async function getLastBodyRow(userId = DEFAULT_USER_ID) {
 async function getLatestWeight(userId = DEFAULT_USER_ID) {
   const last = await getLastBodyRow(userId);
 
-  if (!last || !last.weight) {
+  if (!last || last.weight == null) {
     return null;
   }
 

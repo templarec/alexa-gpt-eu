@@ -19,6 +19,34 @@ function parseOptionalNumber(value) {
   return Number.isFinite(parsed) ? parsed : "";
 }
 
+function buildSafeRawBodyPayload(body, userId) {
+  const payload = { ...body };
+
+  if (userId !== "elisa") {
+    return payload;
+  }
+
+  for (const key of [
+    "weight",
+    "body_fat",
+    "bodyFat",
+    "muscle_mass",
+    "muscleMass",
+    "water_mass",
+    "waterMass",
+    "fat_mass",
+    "fatMass",
+    "lean_mass",
+    "leanMass",
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      payload[key] = "[encrypted]";
+    }
+  }
+
+  return payload;
+}
+
 async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
   const body = parseJsonBody(event);
   const normalizedUserId = normalizeUserId(
@@ -44,6 +72,8 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
   const bodyDate = String(body.date || body.body_date || date).trim();
   const bodyTime = String(body.time || body.body_time || time).trim();
 
+  const safeRawBodyPayload = buildSafeRawBodyPayload(body, normalizedUserId);
+
   const row = [
     normalizedUserId,
     bodyDate,
@@ -55,7 +85,7 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
     waterMass,
     fatMass,
     leanMass,
-    JSON.stringify(body),
+    JSON.stringify(safeRawBodyPayload),
   ];
 
   await appendBodyRow(row);
@@ -73,6 +103,7 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
       water_mass: waterMass === "" ? null : waterMass,
       fat_mass: fatMass === "" ? null : fatMass,
       lean_mass: leanMass === "" ? null : leanMass,
+      encrypted_at_rest: normalizedUserId === "elisa",
     },
   });
 }
