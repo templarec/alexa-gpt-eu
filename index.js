@@ -410,13 +410,55 @@ async function runDailyStatsBackfill(userId = "lorenzo", options = {}) {
   for (const date of sortedDates) {
     console.log("DAILY BACKFILL PROCESSING", JSON.stringify({ userId, date }));
 
-    await getTodayDietReport(date, null, { userId });
+    try {
+      await getTodayDietReport(date, null, { userId });
 
-    results.push({
-      user_id: userId,
-      date,
-      updated: true,
-    });
+      results.push({
+        user_id: userId,
+        date,
+        updated: true,
+      });
+    } catch (error) {
+      const message = String(error?.message || error);
+      const isQuotaError =
+        error?.code === 429 ||
+        error?.status === 429 ||
+        message.toLowerCase().includes("quota exceeded") ||
+        message.toLowerCase().includes("rate limit");
+
+      console.error(
+        "DAILY BACKFILL DATE FAILED",
+        JSON.stringify({
+          userId,
+          date,
+          isQuotaError,
+          message,
+        }),
+      );
+
+      results.push({
+        user_id: userId,
+        date,
+        updated: false,
+        error: isQuotaError ? "quota_exceeded" : "backfill_failed",
+        message,
+      });
+
+      if (isQuotaError) {
+        return {
+          ok: false,
+          statusCode: 429,
+          error: "google_sheets_quota_exceeded",
+          message:
+            "Google Sheets quota exceeded. Retry later or use ?date=YYYY-MM-DD for one day at a time.",
+          user_id: userId,
+          requested_date: requestedDate,
+          limit: parsedLimit || null,
+          count: results.filter((item) => item.updated).length,
+          results,
+        };
+      }
+    }
   }
 
   console.log(
@@ -1085,7 +1127,10 @@ async function httpHandler(event) {
       limit: queryParams.limit || null,
     });
 
-    return jsonResponse(result.ok === false ? 400 : 200, result);
+    return jsonResponse(
+      result.statusCode || (result.ok === false ? 400 : 200),
+      result,
+    );
   }
   if (path.includes("/diet/week-context") && method === "GET") {
     const { date: today } = getDateTimeParts(TIMEZONE);
