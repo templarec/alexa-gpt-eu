@@ -124,6 +124,29 @@ function normalizeActivityRow(row, fallbackUserId = DEFAULT_USER_ID) {
   };
 }
 
+function toLegacyActivityRowForNormalizer(
+  row,
+  fallbackUserId = DEFAULT_USER_ID,
+) {
+  const activity = normalizeActivityRow(row, fallbackUserId);
+
+  return [
+    activity.date,
+    activity.time,
+    activity.source,
+    activity.activity_type,
+    activity.description,
+    activity.calories,
+    activity.distance_km,
+    activity.duration_min,
+    activity.steps,
+    activity.avg_speed_kmh,
+    activity.source_id,
+    activity.source_url,
+    activity.raw_json,
+  ];
+}
+
 function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
   const hasUserId = hasUserIdColumn(row);
   const offset = hasUserId ? 1 : 0;
@@ -1172,7 +1195,9 @@ async function getWeekDietContext(referenceDate, options = {}) {
     };
 
     const normalizedActivities = buildNormalizedActivityEntries(
-      activitiesByDate[date] || [],
+      (activitiesByDate[date] || []).map((row) =>
+        toLegacyActivityRowForNormalizer(row, userId),
+      ),
     );
 
     const activity = roundNumber(
@@ -1397,7 +1422,9 @@ async function getTodayDietReport(
     };
   });
 
-  const activities = buildNormalizedActivityEntries(activityRows);
+  const activities = buildNormalizedActivityEntries(
+    activityRows.map((row) => toLegacyActivityRowForNormalizer(row, userId)),
+  );
 
   let intake = 0;
   let activity = 0;
