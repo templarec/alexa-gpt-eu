@@ -1,6 +1,10 @@
 require("dotenv").config();
 const { getAllMeals, getTodayDietReport } = require("./sheets");
 
+const DEFAULT_USER_ID = "lorenzo";
+const BACKFILL_USER_ID = String(process.env.BACKFILL_USER_ID || DEFAULT_USER_ID)
+  .trim()
+  .toLowerCase();
 const RATE_LIMIT_DELAY_MS = Number(process.env.BACKFILL_DELAY_MS || 20000);
 const QUOTA_RETRY_DELAY_MS = Number(
   process.env.BACKFILL_QUOTA_RETRY_DELAY_MS || 60000,
@@ -19,26 +23,57 @@ function isQuotaError(error) {
   );
 }
 
-async function processDateWithRetry(date) {
+function normalizeUserId(value) {
+  return String(value || DEFAULT_USER_ID)
+    .trim()
+    .toLowerCase();
+}
+
+function getMealUserIdAndDate(row) {
+  const firstCell = String(row[0] || "").trim();
+  const secondCell = String(row[1] || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
+    return {
+      userId: DEFAULT_USER_ID,
+      date: firstCell,
+    };
+  }
+
+  return {
+    userId: normalizeUserId(firstCell),
+    date: secondCell,
+  };
+}
+
+async function processDateWithRetry(date, userId) {
   for (let attempt = 1; attempt <= MAX_RETRIES_PER_DATE; attempt++) {
     try {
       console.log(
         "PROCESSING",
-        date,
-        `attempt ${attempt}/${MAX_RETRIES_PER_DATE}`,
+        JSON.stringify({
+          userId,
+          date,
+          attempt,
+          maxRetries: MAX_RETRIES_PER_DATE,
+        }),
       );
 
-      await getTodayDietReport(date);
+      await getTodayDietReport(date, null, { userId });
 
-      console.log("DONE", date);
+      console.log("DONE", JSON.stringify({ userId, date }));
       return;
     } catch (err) {
       if (isQuotaError(err) && attempt < MAX_RETRIES_PER_DATE) {
         console.warn(
           "QUOTA RETRY",
-          date,
-          `attempt ${attempt}/${MAX_RETRIES_PER_DATE}`,
-          `waiting ${QUOTA_RETRY_DELAY_MS}ms`,
+          JSON.stringify({
+            userId,
+            date,
+            attempt,
+            maxRetries: MAX_RETRIES_PER_DATE,
+            waitMs: QUOTA_RETRY_DELAY_MS,
+          }),
         );
         await sleep(QUOTA_RETRY_DELAY_MS);
         continue;
@@ -60,12 +95,20 @@ async function backfillDailyStats() {
   const dates = new Set();
 
   for (const row of rows.slice(1)) {
-    const date = String(row[0] || "").trim();
-    if (date) dates.add(date);
+    const { userId, date } = getMealUserIdAndDate(row);
+
+    if (userId !== BACKFILL_USER_ID) {
+      continue;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      dates.add(date);
+    }
   }
 
   const sortedDates = [...dates].sort();
 
+  console.log("BACKFILL USER ID", BACKFILL_USER_ID);
   console.log("DATES FOUND", sortedDates.length);
   console.log("RATE LIMIT DELAY MS", RATE_LIMIT_DELAY_MS);
   console.log("QUOTA RETRY DELAY MS", QUOTA_RETRY_DELAY_MS);
@@ -75,9 +118,16 @@ async function backfillDailyStats() {
     const date = sortedDates[i];
 
     try {
-      await processDateWithRetry(date);
+      await processDateWithRetry(date, BACKFILL_USER_ID);
     } catch (err) {
-      console.error("ERROR", date, err.message);
+      console.error(
+        "ERROR",
+        JSON.stringify({
+          userId: BACKFILL_USER_ID,
+          date,
+          message: err.message,
+        }),
+      );
     }
 
     if (i < sortedDates.length - 1) {
@@ -86,7 +136,13 @@ async function backfillDailyStats() {
     }
   }
 
-  console.log("BACKFILL COMPLETE");
+  console.log(
+    "BACKFILL COMPLETE",
+    JSON.stringify({
+      userId: BACKFILL_USER_ID,
+      count: sortedDates.length,
+    }),
+  );
 }
 
 backfillDailyStats();

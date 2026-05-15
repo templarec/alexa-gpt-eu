@@ -340,6 +340,73 @@ async function runWeeklyStatsBackfill(userId = "lorenzo") {
   };
 }
 
+async function runDailyStatsBackfill(userId = "lorenzo") {
+  console.log("DAILY BACKFILL START", JSON.stringify({ userId }));
+
+  const rows = await getAllMeals();
+  const uniqueDates = new Set();
+
+  for (const row of rows) {
+    const firstCell = String(row[0] || "").trim();
+    const secondCell = String(row[1] || "").trim();
+
+    let rowUserId = "lorenzo";
+    let date = "";
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
+      date = firstCell;
+    } else {
+      rowUserId = firstCell.toLowerCase() || "lorenzo";
+      date = secondCell;
+    }
+
+    if (rowUserId !== userId) {
+      continue;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      uniqueDates.add(date);
+    }
+  }
+
+  const sortedDates = [...uniqueDates].sort();
+
+  console.log(
+    "DAILY BACKFILL DATES FOUND",
+    JSON.stringify({
+      userId,
+      count: sortedDates.length,
+      dates: sortedDates,
+    }),
+  );
+
+  const results = [];
+
+  for (const date of sortedDates) {
+    console.log("DAILY BACKFILL PROCESSING", JSON.stringify({ userId, date }));
+
+    await getTodayDietReport(date, null, { userId });
+
+    results.push({
+      user_id: userId,
+      date,
+      updated: true,
+    });
+  }
+
+  console.log(
+    "DAILY BACKFILL DONE",
+    JSON.stringify({ userId, count: results.length }),
+  );
+
+  return {
+    ok: true,
+    user_id: userId,
+    count: results.length,
+    results,
+  };
+}
+
 function optionsSilvia() {
   return {
     statusCode: 204,
@@ -981,6 +1048,11 @@ async function httpHandler(event) {
   }
   if (path.includes("/admin/backfill-weekly-stats") && method === "POST") {
     const result = await runWeeklyStatsBackfill(userId);
+
+    return jsonResponse(200, result);
+  }
+  if (path.includes("/admin/backfill-daily-stats") && method === "POST") {
+    const result = await runDailyStatsBackfill(userId);
 
     return jsonResponse(200, result);
   }

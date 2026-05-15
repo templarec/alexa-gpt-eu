@@ -4,25 +4,62 @@ const {
   upsertWeeklyStatsRow,
 } = require("./sheets");
 
+const DEFAULT_USER_ID = "lorenzo";
+const BACKFILL_USER_ID = String(process.env.BACKFILL_USER_ID || DEFAULT_USER_ID)
+  .trim()
+  .toLowerCase();
+
 function getMonday(dateString) {
   const date = new Date(dateString + "T00:00:00");
   const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // domenica -> lunedì precedente
+  const diff = day === 0 ? -6 : 1 - day;
   date.setDate(date.getDate() + diff);
 
   return date.toISOString().slice(0, 10);
 }
 
+function normalizeUserId(value) {
+  return String(value || DEFAULT_USER_ID)
+    .trim()
+    .toLowerCase();
+}
+
+function getMealUserIdAndDate(row) {
+  const firstCell = String(row[0] || "").trim();
+  const secondCell = String(row[1] || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
+    return {
+      userId: DEFAULT_USER_ID,
+      date: firstCell,
+    };
+  }
+
+  return {
+    userId: normalizeUserId(firstCell),
+    date: secondCell,
+  };
+}
+
 async function main() {
-  console.log("WEEKLY BACKFILL START");
+  console.log(
+    "WEEKLY BACKFILL START",
+    JSON.stringify({ userId: BACKFILL_USER_ID }),
+  );
 
   const rows = await getAllMeals();
-
   const uniqueDates = new Set();
 
   for (const row of rows) {
-    const date = String(row[0] || "").trim();
-    if (date) uniqueDates.add(date);
+    const { userId, date } = getMealUserIdAndDate(row);
+
+    if (userId !== BACKFILL_USER_ID) {
+      continue;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      uniqueDates.add(date);
+    }
   }
 
   const uniqueWeeks = new Set();
@@ -33,14 +70,27 @@ async function main() {
 
   const sortedWeeks = [...uniqueWeeks].sort();
 
-  console.log("WEEKS FOUND:", sortedWeeks.length);
+  console.log(
+    "WEEKS FOUND",
+    JSON.stringify({
+      userId: BACKFILL_USER_ID,
+      count: sortedWeeks.length,
+      weeks: sortedWeeks,
+    }),
+  );
 
   for (const weekStart of sortedWeeks) {
-    console.log("PROCESSING WEEK:", weekStart);
+    console.log(
+      "PROCESSING WEEK",
+      JSON.stringify({ userId: BACKFILL_USER_ID, weekStart }),
+    );
 
-    const context = await getWeekDietContext(weekStart);
+    const context = await getWeekDietContext(weekStart, {
+      userId: BACKFILL_USER_ID,
+    });
 
     await upsertWeeklyStatsRow({
+      user_id: BACKFILL_USER_ID,
       week_start: context.week_start,
       week_end: context.week_end,
       intake: context.summary.intake,
@@ -59,7 +109,13 @@ async function main() {
     });
   }
 
-  console.log("WEEKLY BACKFILL DONE");
+  console.log(
+    "WEEKLY BACKFILL DONE",
+    JSON.stringify({
+      userId: BACKFILL_USER_ID,
+      count: sortedWeeks.length,
+    }),
+  );
 }
 
 main().catch((err) => {
