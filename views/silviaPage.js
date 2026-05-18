@@ -79,37 +79,37 @@ function getSilviaPageHtml() {
       font-size: clamp(20px, 3vw, 28px);
     }
 
-    ul {
-      margin: 0;
-      padding-left: 24px;
-      font-size: clamp(18px, 3vw, 26px);
-      line-height: 1.45;
+    .ingredient-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
-    textarea {
-      width: 100%;
-      min-height: 150px;
-      box-sizing: border-box;
-      border: 0;
+    .ingredient-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+      background: rgba(255,255,255,0.08);
       border-radius: 16px;
-      padding: 14px;
-      font-size: 18px;
-      line-height: 1.35;
-      resize: vertical;
-      background: rgba(255,255,255,0.95);
-      color: #111827;
+      padding: 12px;
+    }
+
+    .ingredient-text {
+      font-size: clamp(17px, 2.6vw, 24px);
+      line-height: 1.3;
+      overflow-wrap: anywhere;
     }
 
     button {
-      margin-top: 10px;
-      width: 100%;
       border: 0;
-      border-radius: 16px;
-      padding: 14px 18px;
-      font-size: 18px;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-size: 15px;
       font-weight: 700;
       background: #f9fafb;
       color: #111827;
+      white-space: nowrap;
     }
 
     .footer {
@@ -149,22 +149,15 @@ function getSilviaPageHtml() {
         .replaceAll("'", "&#039;");
     }
 
-    async function copyText() {
-      const textarea = document.getElementById("mfpText");
+    async function copyIngredient(button, text) {
+      await navigator.clipboard.writeText(text);
 
-      if (!textarea) return;
+      const previousText = button.textContent;
+      button.textContent = "Copiato";
 
-      await navigator.clipboard.writeText(textarea.value);
-
-      const button = document.getElementById("copyButton");
-
-      if (button) {
-        button.textContent = "Copiato";
-
-        setTimeout(() => {
-          button.textContent = "Copia per MyFitnessPal";
-        }, 1400);
-      }
+      setTimeout(() => {
+        button.textContent = previousText;
+      }, 1200);
     }
 
     function render(state) {
@@ -182,15 +175,24 @@ function getSilviaPageHtml() {
         ? payload.ingredients
         : [];
 
-      const mfpText =
-        payload.myfitnesspal_text ||
-        ingredients.join("\\n");
+      const ingredientRows = ingredients
+        .map((item, index) => {
+          const text = String(item ?? "");
+          const escapedText = escapeHtml(text);
+          const encodedText = encodeURIComponent(text);
 
-      const notesHtml = payload.notes
-        ? '<section class="card"><h2>Note</h2><div class="subtitle">' +
-            escapeHtml(payload.notes) +
-          "</div></section>"
-        : "";
+          return (
+            '<div class="ingredient-row">' +
+              '<div class="ingredient-text">' +
+                escapedText +
+              '</div>' +
+              '<button type="button" onclick="copyIngredient(this, decodeURIComponent(\'' +
+                encodedText +
+              '\'))">Copia</button>' +
+            '</div>'
+          );
+        })
+        .join("");
 
       app.innerHTML =
         '<section class="card">' +
@@ -221,27 +223,14 @@ function getSilviaPageHtml() {
         '</section>' +
 
         '<section class="card">' +
-          '<h2>Ingredienti</h2>' +
-          '<ul>' +
-            ingredients
-              .map((item) =>
-                '<li>' + escapeHtml(item) + '</li>'
-              )
-              .join("") +
-          '</ul>' +
+          '<h2>Ingredienti MyFitnessPal</h2>' +
+          '<div class="subtitle" style="margin-bottom: 12px;">' +
+            'Copia un ingrediente alla volta. I grammi restano visibili e li inserisci manualmente.' +
+          '</div>' +
+          '<div class="ingredient-list">' +
+            ingredientRows +
+          '</div>' +
         '</section>' +
-
-        '<section class="card">' +
-          '<h2>Testo MyFitnessPal</h2>' +
-          '<textarea id="mfpText" readonly>' +
-            escapeHtml(mfpText) +
-          '</textarea>' +
-          '<button id="copyButton" onclick="copyText()">' +
-            'Copia per MyFitnessPal' +
-          '</button>' +
-        '</section>' +
-
-        notesHtml +
 
         '<div class="footer">' +
           'Ultimo aggiornamento: ' +
