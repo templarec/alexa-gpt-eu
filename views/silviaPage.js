@@ -179,16 +179,15 @@ function getSilviaPageHtml() {
         .map((item, index) => {
           const text = String(item ?? "");
           const escapedText = escapeHtml(text);
-          const encodedText = encodeURIComponent(text);
 
           return (
             '<div class="ingredient-row">' +
               '<div class="ingredient-text">' +
                 escapedText +
               '</div>' +
-              '<button type="button" onclick="copyIngredient(this, decodeURIComponent(\'' +
-                encodedText +
-              '\'))">Copia</button>' +
+              '<button type="button" data-copy="' +
+                escapedText +
+              '" onclick="copyIngredient(this, this.dataset.copy)">Copia</button>' +
             '</div>'
           );
         })
