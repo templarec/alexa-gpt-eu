@@ -95,10 +95,23 @@ function getSilviaPageHtml() {
       padding: 12px;
     }
 
+    .ingredient-main {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
     .ingredient-text {
       font-size: clamp(17px, 2.6vw, 24px);
       line-height: 1.3;
       overflow-wrap: anywhere;
+    }
+
+    .ingredient-meta {
+      color: #cbd5e1;
+      font-size: clamp(13px, 2vw, 17px);
+      line-height: 1.25;
     }
 
     button {
@@ -160,6 +173,54 @@ function getSilviaPageHtml() {
       }, 1200);
     }
 
+    function normalizeIngredient(item) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const name = item.name || item.description || item.title || "Ingrediente";
+        const grams = item.grams ?? item.g ?? item.quantity_g ?? item.quantityGrams ?? null;
+        const calories = item.calories ?? item.kcal ?? null;
+
+        return {
+          name: String(name),
+          grams: grams === null || grams === undefined || grams === "" ? null : Number(grams),
+          calories: calories === null || calories === undefined || calories === "" ? null : Number(calories),
+        };
+      }
+
+      return {
+        name: String(item ?? ""),
+        grams: null,
+        calories: null,
+      };
+    }
+
+    function formatIngredientMeta(ingredient) {
+      const parts = [];
+
+      if (Number.isFinite(ingredient.grams)) {
+        parts.push(Math.round(ingredient.grams) + " g");
+      }
+
+      if (Number.isFinite(ingredient.calories)) {
+        parts.push(Math.round(ingredient.calories) + " kcal");
+      }
+
+      return parts.join(" · ");
+    }
+
+    function buildIngredientCopyText(ingredient) {
+      const parts = [ingredient.name];
+
+      if (Number.isFinite(ingredient.grams)) {
+        parts.push(Math.round(ingredient.grams) + " g");
+      }
+
+      if (Number.isFinite(ingredient.calories)) {
+        parts.push(Math.round(ingredient.calories) + " kcal");
+      }
+
+      return parts.join(" - ");
+    }
+
     function render(state) {
       const payload = state?.payload;
       const app = document.getElementById("app");
@@ -176,17 +237,27 @@ function getSilviaPageHtml() {
         : [];
 
       const ingredientRows = ingredients
-        .map((item, index) => {
-          const text = String(item ?? "");
-          const escapedText = escapeHtml(text);
+        .map((item) => {
+          const ingredient = normalizeIngredient(item);
+          const meta = formatIngredientMeta(ingredient);
+          const copyText = buildIngredientCopyText(ingredient);
+          const escapedName = escapeHtml(ingredient.name);
+          const escapedMeta = escapeHtml(meta);
+          const escapedCopyText = escapeHtml(copyText);
 
           return (
             '<div class="ingredient-row">' +
-              '<div class="ingredient-text">' +
-                escapedText +
+              '<div class="ingredient-main">' +
+                '<div class="ingredient-text">' +
+                  escapedName +
+                '</div>' +
+                (meta
+                  ? '<div class="ingredient-meta">' + escapedMeta + '</div>'
+                  : '<div class="ingredient-meta">Grammi/kcal non disponibili</div>'
+                ) +
               '</div>' +
               '<button type="button" data-copy="' +
-                escapedText +
+                escapedCopyText +
               '" onclick="copyIngredient(this, this.dataset.copy)">Copia</button>' +
             '</div>'
           );
@@ -224,7 +295,7 @@ function getSilviaPageHtml() {
         '<section class="card">' +
           '<h2>Ingredienti MyFitnessPal</h2>' +
           '<div class="subtitle" style="margin-bottom: 12px;">' +
-            'Copia un ingrediente alla volta. I grammi restano visibili e li inserisci manualmente.' +
+            'Copia un ingrediente alla volta. Grammi e kcal sono indicati sotto ogni alimento.' +
           '</div>' +
           '<div class="ingredient-list">' +
             ingredientRows +

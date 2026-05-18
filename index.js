@@ -498,6 +498,51 @@ async function getSilviaCurrent() {
   });
 }
 
+function normalizeSilviaIngredient(item) {
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    const name = item.name || item.description || item.title || "Ingrediente";
+    const grams =
+      item.grams ?? item.g ?? item.quantity_g ?? item.quantityGrams ?? null;
+    const calories = item.calories ?? item.kcal ?? null;
+
+    return {
+      name: String(name).trim(),
+      grams:
+        grams === null || grams === undefined || grams === ""
+          ? null
+          : Number(grams),
+      calories:
+        calories === null || calories === undefined || calories === ""
+          ? null
+          : Number(calories),
+    };
+  }
+
+  return {
+    name: String(item || "").trim(),
+    grams: null,
+    calories: null,
+  };
+}
+
+function normalizeSilviaDisplayPayload(payload) {
+  const ingredients = Array.isArray(payload.ingredients)
+    ? payload.ingredients
+        .map(normalizeSilviaIngredient)
+        .filter((item) => item.name)
+    : [];
+
+  return {
+    title: String(payload.title || "Porzione Silvia").trim(),
+    servings: String(payload.servings || "1 porzione").trim(),
+    calories: Number(payload.calories || 0),
+    protein: Number(payload.protein || 0),
+    carbs: Number(payload.carbs || 0),
+    fat: Number(payload.fat || 0),
+    ingredients,
+  };
+}
+
 async function postSilviaDisplay(event) {
   let payload;
 
@@ -510,11 +555,13 @@ async function postSilviaDisplay(event) {
     });
   }
 
-  const result = await saveSilviaMealState(payload);
+  const normalizedPayload = normalizeSilviaDisplayPayload(payload);
+  const result = await saveSilviaMealState(normalizedPayload);
 
   return jsonResponse(200, {
     ok: true,
     updatedAt: result.updatedAt,
+    payload: normalizedPayload,
   });
 }
 
