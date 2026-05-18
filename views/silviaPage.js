@@ -208,17 +208,7 @@ function getSilviaPageHtml() {
     }
 
     function buildIngredientCopyText(ingredient) {
-      const parts = [ingredient.name];
-
-      if (Number.isFinite(ingredient.grams)) {
-        parts.push(Math.round(ingredient.grams) + " g");
-      }
-
-      if (Number.isFinite(ingredient.calories)) {
-        parts.push(Math.round(ingredient.calories) + " kcal");
-      }
-
-      return parts.join(" - ");
+      return ingredient.name;
     }
 
     function render(state) {
