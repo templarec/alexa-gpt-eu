@@ -1,4 +1,6 @@
-const { appendBodyRow, getLastBodyRow } = require("../../sheets");
+const { appendBodyRow } = require("../../sheets");
+const { getLatestBodyMetric } = require("../../repositories/bodyRepository");
+const { maybeDecryptBodyNumber } = require("../../utils/crypto");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
 function normalizeUserId(userId) {
@@ -17,6 +19,10 @@ function parseOptionalNumber(value) {
   const parsed = Number(String(value).replace(",", "."));
 
   return Number.isFinite(parsed) ? parsed : "";
+}
+
+function parseStoredBodyNumber(value) {
+  return parseOptionalNumber(maybeDecryptBodyNumber(value));
 }
 
 function buildSafeRawBodyPayload(body, userId) {
@@ -110,7 +116,7 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
 
 async function getLatestBodyFromHttp({ userId = "lorenzo" }) {
   const normalizedUserId = normalizeUserId(userId);
-  const latest = await getLastBodyRow(normalizedUserId);
+  const latest = await getLatestBodyMetric(normalizedUserId);
 
   if (!latest) {
     return jsonResponse(404, {
@@ -123,7 +129,19 @@ async function getLatestBodyFromHttp({ userId = "lorenzo" }) {
 
   return jsonResponse(200, {
     success: true,
-    body: latest,
+    body: {
+      user_id: normalizedUserId,
+      date: latest.date,
+      time: latest.time,
+      source: latest.source,
+      weight: parseStoredBodyNumber(latest.weight),
+      bodyFat: parseStoredBodyNumber(latest.body_fat),
+      muscleMass: parseStoredBodyNumber(latest.muscle_mass),
+      waterMass: parseStoredBodyNumber(latest.water_mass),
+      fatMass: parseStoredBodyNumber(latest.fat_mass),
+      leanMass: parseStoredBodyNumber(latest.lean_mass),
+      rawJson: latest.raw_json,
+    },
   });
 }
 

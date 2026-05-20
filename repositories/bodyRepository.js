@@ -71,6 +71,38 @@ async function insertBodyMetric({
   return result.rows[0];
 }
 
+async function getLatestBodyMetric(userSlug) {
+  const userId = await getUserIdBySlug(userSlug);
+
+  if (!userId) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
+
+  const result = await query(
+    `
+    SELECT
+      bm.date,
+      bm.time,
+      bm.source,
+      bm.weight,
+      bm.body_fat,
+      bm.muscle_mass,
+      bm.water_mass,
+      bm.fat_mass,
+      bm.lean_mass,
+      bm.raw_json
+    FROM body_metrics bm
+    WHERE bm.user_id = $1
+    ORDER BY bm.date DESC, bm.time DESC, bm.created_at DESC
+    LIMIT 1
+    `,
+    [userId],
+  );
+
+  return result.rows[0] || null;
+}
+
 module.exports = {
   insertBodyMetric,
+  getLatestBodyMetric,
 };
