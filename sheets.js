@@ -1,5 +1,6 @@
 const { google } = require("googleapis");
 
+const { insertBodyMetric } = require("./repositories/bodyRepository");
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
 const {
   maybeEncryptBodyValue,
@@ -276,6 +277,29 @@ async function appendBodyRow(row) {
   });
 
   const body = normalizeBodyRow(rowForStorage);
+  const offset = body.offset || 0;
+
+  try {
+    await insertBodyMetric({
+      userSlug: body.user_id,
+      date: body.date,
+      time: body.time,
+      source: body.source,
+      weight: rowForStorage[offset + 3] ?? null,
+      bodyFat: rowForStorage[offset + 4] ?? null,
+      muscleMass: rowForStorage[offset + 5] ?? null,
+      waterMass: rowForStorage[offset + 6] ?? null,
+      fatMass: rowForStorage[offset + 7] ?? null,
+      leanMass: rowForStorage[offset + 8] ?? null,
+      rawJson: body.rawJson ? JSON.parse(body.rawJson) : null,
+    });
+
+    console.log("POSTGRES BODY INSERTED");
+  } catch (error) {
+    console.error("POSTGRES BODY INSERT FAILED", {
+      message: error.message,
+    });
+  }
 
   let sourceDate = null;
   try {
