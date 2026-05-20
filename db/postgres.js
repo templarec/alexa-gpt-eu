@@ -3,13 +3,6 @@ const { Pool } = require("pg");
 let globalPool = global.__DIETA_POSTGRES_POOL__;
 
 function createPool() {
-  console.log("POSTGRES ENV DEBUG", {
-    host: process.env.POSTGRES_HOST,
-    port: process.env.POSTGRES_PORT,
-    database: process.env.POSTGRES_DATABASE,
-    user: process.env.POSTGRES_USER,
-    ssl: process.env.POSTGRES_SSL,
-  });
   return new Pool({
     host: process.env.POSTGRES_HOST,
     port: Number(process.env.POSTGRES_PORT || 5432),

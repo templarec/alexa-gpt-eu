@@ -1,4 +1,5 @@
 const { appendActivityRow, getLatestWeight } = require("../../sheets");
+const { insertActivity } = require("../../repositories/activityRepository");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
 function estimateCaloriesFromMetrics({
@@ -239,6 +240,33 @@ async function createActivityFromHttp(
   ];
 
   const result = await appendActivityRow(row);
+
+  if (!result || (!result.skipped && !result.updated)) {
+    try {
+      await insertActivity({
+        userSlug: normalizedUserId,
+        activityDate,
+        time: activityTime,
+        source,
+        activityType,
+        description,
+        calories: computedCalories,
+        distanceKm,
+        durationMin: effectiveDurationMin,
+        steps,
+        avgSpeedKmh,
+        sourceId: sourceId || null,
+        sourceUrl: sourceUrl || null,
+        rawJson: body,
+      });
+
+      console.log("POSTGRES ACTIVITY INSERTED");
+    } catch (error) {
+      console.error("POSTGRES ACTIVITY INSERT FAILED", {
+        message: error.message,
+      });
+    }
+  }
 
   if (result && result.updated) {
     console.log(
