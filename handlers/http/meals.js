@@ -1,4 +1,5 @@
 const { appendMealRow, getAllMeals, getTodayRows } = require("../../sheets");
+const { insertMeal } = require("../../repositories/mealsRepository");
 const { analyzeMeal } = require("../../openai");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
@@ -90,6 +91,27 @@ async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
 
   await appendMealRow(row);
 
+  try {
+    await insertMeal({
+      userSlug: normalizedUserId,
+      date,
+      time,
+      mealType,
+      description,
+      calories,
+      protein,
+      carbs,
+      fat,
+      source: body.source || "api",
+    });
+
+    console.log("POSTGRES MEAL INSERTED");
+  } catch (error) {
+    console.error("POSTGRES MEAL INSERT FAILED", {
+      message: error.message,
+    });
+  }
+
   return jsonResponse(200, {
     success: true,
     saved: {
@@ -159,6 +181,27 @@ async function createAnalyzedMealFromHttp(
     ];
 
     await appendMealRow(row);
+
+    try {
+      await insertMeal({
+        userSlug: normalizedUserId,
+        date,
+        time,
+        mealType: analysis.meal_type || mealType,
+        description: analysis.description_normalized || description,
+        calories,
+        protein,
+        carbs,
+        fat,
+        source: body.source || "analyze",
+      });
+
+      console.log("POSTGRES MEAL INSERTED");
+    } catch (error) {
+      console.error("POSTGRES MEAL INSERT FAILED", {
+        message: error.message,
+      });
+    }
 
     return jsonResponse(200, {
       success: true,
