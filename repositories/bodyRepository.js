@@ -1,4 +1,5 @@
 const { query } = require("../db/postgres");
+const { maybeDecryptBodyNumber } = require("../utils/crypto");
 
 async function getUserIdBySlug(slug) {
   const result = await query(
@@ -102,7 +103,21 @@ async function getLatestBodyMetric(userSlug) {
   return result.rows[0] || null;
 }
 
+async function getLatestWeightFromPostgres(userSlug) {
+  const latest = await getLatestBodyMetric(userSlug);
+
+  if (!latest || latest.weight == null || latest.weight === "") {
+    return null;
+  }
+
+  const decryptedWeight = maybeDecryptBodyNumber(latest.weight);
+  const parsedWeight = Number(String(decryptedWeight).replace(",", "."));
+
+  return Number.isFinite(parsedWeight) ? parsedWeight : null;
+}
+
 module.exports = {
   insertBodyMetric,
   getLatestBodyMetric,
+  getLatestWeightFromPostgres,
 };

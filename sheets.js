@@ -1,6 +1,9 @@
 const { google } = require("googleapis");
 
-const { insertBodyMetric } = require("./repositories/bodyRepository");
+const {
+  insertBodyMetric,
+  getLatestWeightFromPostgres,
+} = require("./repositories/bodyRepository");
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
 const {
   maybeEncryptBodyValue,
@@ -588,13 +591,30 @@ async function getLastBodyRow(userId = DEFAULT_USER_ID) {
 }
 
 async function getLatestWeight(userId = DEFAULT_USER_ID) {
-  const last = await getLastBodyRow(userId);
+  const normalizedUserId = normalizeUserId(userId);
+
+  try {
+    const postgresWeight = await getLatestWeightFromPostgres(normalizedUserId);
+
+    if (postgresWeight != null) {
+      return postgresWeight;
+    }
+  } catch (error) {
+    console.error("POSTGRES LATEST WEIGHT READ FAILED", {
+      userId: normalizedUserId,
+      message: error.message,
+    });
+  }
+
+  const last = await getLastBodyRow(normalizedUserId);
 
   if (!last || last.weight == null) {
     return null;
   }
 
-  return Number(last.weight);
+  const parsedWeight = Number(String(last.weight).replace(",", "."));
+
+  return Number.isFinite(parsedWeight) ? parsedWeight : null;
 }
 
 async function getConfigValue(key) {
