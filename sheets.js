@@ -9,6 +9,9 @@ const { getActivitiesByDate } = require("./repositories/activityRepository");
 const {
   getUserConfigValueFromPostgres,
 } = require("./repositories/configRepository");
+const {
+  upsertDailyStatsSnapshot,
+} = require("./repositories/dailyStatsRepository");
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
 const {
   maybeEncryptBodyValue,
@@ -913,19 +916,69 @@ async function saveDailyStatsSnapshot({
 }) {
   const normalizedUserId = normalizeUserId(userId);
 
+  const snapshot = {
+    date,
+    intake: summary?.intake ?? 0,
+    activity: Math.abs(Number(summary?.activity || 0)),
+    net: summary?.net ?? 0,
+    target: summary?.target ?? 0,
+    remaining: summary?.remaining ?? 0,
+    protein: summary?.protein ?? 0,
+    carbs: summary?.carbs ?? 0,
+    fat: summary?.fat ?? 0,
+    weight: weight ?? null,
+    bodyFat: bodyFat ?? null,
+    tdeeFormula: summary?.tdee_formula ?? null,
+    tdeeAdaptive: summary?.tdee_adaptive ?? null,
+    tdeeFinal: summary?.tdee ?? null,
+    source: "runtime",
+    notes: notes || null,
+  };
+
+  try {
+    const result = await upsertDailyStatsSnapshot(normalizedUserId, snapshot);
+
+    console.log(
+      "POSTGRES DAILY STATS SNAPSHOT SAVED",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date,
+        intake: snapshot.intake,
+        activity: snapshot.activity,
+        net: snapshot.net,
+        target: snapshot.target,
+        remaining: snapshot.remaining,
+        tdeeFinal: snapshot.tdeeFinal,
+        weight: snapshot.weight,
+        bodyFat: snapshot.bodyFat,
+      }),
+    );
+
+    return result;
+  } catch (error) {
+    console.error(
+      "POSTGRES DAILY STATS SNAPSHOT FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date,
+        message: error.message,
+      }),
+    );
+  }
+
   const row = [
     normalizedUserId,
     date,
-    summary?.intake ?? 0,
-    Math.abs(Number(summary?.activity || 0)),
-    summary?.net ?? 0,
-    summary?.target ?? 0,
-    summary?.tdee_formula ?? "",
-    summary?.tdee_adaptive ?? "",
-    summary?.tdee ?? "",
+    snapshot.intake,
+    snapshot.activity,
+    snapshot.net,
+    snapshot.target,
+    snapshot.tdeeFormula ?? "",
+    snapshot.tdeeAdaptive ?? "",
+    snapshot.tdeeFinal ?? "",
     summary?.deficit ?? 0,
-    weight ?? "",
-    bodyFat ?? "",
+    snapshot.weight ?? "",
+    snapshot.bodyFat ?? "",
     notes || "",
   ];
 
