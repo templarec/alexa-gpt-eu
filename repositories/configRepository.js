@@ -1,15 +1,16 @@
 const { query } = require("../db/postgres");
 
-async function getUserConfigValueFromPostgres(userId, key) {
+async function getUserConfigValueFromPostgres(userSlug, key) {
   const result = await query(
     `
-    SELECT value
-    FROM user_config
-    WHERE user_id = $1
-      AND key = $2
+    SELECT c.value
+    FROM user_config c
+    JOIN users u ON u.id = c.user_id
+    WHERE u.slug = $1
+      AND c.key = $2
     LIMIT 1
     `,
-    [userId, key],
+    [userSlug, key],
   );
 
   if (result.rows.length === 0) {
@@ -19,8 +20,8 @@ async function getUserConfigValueFromPostgres(userId, key) {
   return result.rows[0].value ?? null;
 }
 
-async function setUserConfigValueInPostgres(userId, key, value) {
-  await query(
+async function setUserConfigValueInPostgres(userSlug, key, value) {
+  const result = await query(
     `
     INSERT INTO user_config (
       user_id,
@@ -28,19 +29,25 @@ async function setUserConfigValueInPostgres(userId, key, value) {
       value,
       updated_at
     )
-    VALUES (
-      $1,
+    SELECT
+      u.id,
       $2,
       $3,
       NOW()
-    )
+    FROM users u
+    WHERE u.slug = $1
     ON CONFLICT (user_id, key)
     DO UPDATE SET
       value = EXCLUDED.value,
       updated_at = NOW()
+    RETURNING id
     `,
-    [userId, key, String(value)],
+    [userSlug, key, String(value)],
   );
+
+  if (result.rows.length === 0) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
 
   return {
     success: true,
