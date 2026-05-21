@@ -1,4 +1,5 @@
 const { query } = require("../db/postgres");
+const { parseSheetNumber } = require("../utils/numbers-and-dates");
 
 async function getUserIdBySlug(slug) {
   const result = await query(
@@ -68,6 +69,45 @@ async function insertMeal({
   return result.rows[0];
 }
 
+async function getMealsByDate(userSlug, date) {
+  const userId = await getUserIdBySlug(userSlug);
+
+  if (!userId) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
+
+  const result = await query(
+    `
+    SELECT
+      date,
+      time,
+      meal_type,
+      description,
+      calories,
+      protein,
+      carbs,
+      fat
+    FROM meals
+    WHERE user_id = $1
+      AND date = $2
+    ORDER BY time ASC NULLS LAST, id ASC
+    `,
+    [userId, date],
+  );
+
+  return result.rows.map((row) => [
+    row.date,
+    row.time || "",
+    row.meal_type,
+    row.description,
+    parseSheetNumber(row.calories),
+    parseSheetNumber(row.protein),
+    parseSheetNumber(row.carbs),
+    parseSheetNumber(row.fat),
+  ]);
+}
+
 module.exports = {
   insertMeal,
+  getMealsByDate,
 };

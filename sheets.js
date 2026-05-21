@@ -4,6 +4,8 @@ const {
   insertBodyMetric,
   getLatestWeightFromPostgres,
 } = require("./repositories/bodyRepository");
+const { getMealsByDate } = require("./repositories/mealsRepository");
+const { getActivitiesByDate } = require("./repositories/activityRepository");
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
 const {
   maybeEncryptBodyValue,
@@ -1370,6 +1372,38 @@ async function getTodayRows(todayDate, userId = DEFAULT_USER_ID) {
     return cache.todayMeals.value.rows;
   }
 
+  try {
+    const postgresRows = await getMealsByDate(normalizedUserId, todayDate);
+
+    setCache(cache.todayMeals, {
+      key: cacheKey,
+      date: todayDate,
+      userId: normalizedUserId,
+      rows: postgresRows,
+      source: "postgres",
+    });
+
+    console.log(
+      "POSTGRES TODAY MEALS READ",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date: todayDate,
+        count: postgresRows.length,
+      }),
+    );
+
+    return postgresRows;
+  } catch (error) {
+    console.error(
+      "POSTGRES TODAY MEALS READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date: todayDate,
+        message: error.message,
+      }),
+    );
+  }
+
   const sheets = await getSheetsClient();
 
   const response = await sheets.spreadsheets.values.get({
@@ -1385,6 +1419,7 @@ async function getTodayRows(todayDate, userId = DEFAULT_USER_ID) {
       date: todayDate,
       userId: normalizedUserId,
       rows: [],
+      source: "sheets",
     });
     return [];
   }
@@ -1399,6 +1434,7 @@ async function getTodayRows(todayDate, userId = DEFAULT_USER_ID) {
     date: todayDate,
     userId: normalizedUserId,
     rows: filtered,
+    source: "sheets",
   });
 
   return filtered;
@@ -1413,6 +1449,38 @@ async function getTodayActivityRows(todayDate, userId = DEFAULT_USER_ID) {
     cache.todayActivities.value?.key === cacheKey
   ) {
     return cache.todayActivities.value.rows;
+  }
+
+  try {
+    const postgresRows = await getActivitiesByDate(normalizedUserId, todayDate);
+
+    setCache(cache.todayActivities, {
+      key: cacheKey,
+      date: todayDate,
+      userId: normalizedUserId,
+      rows: postgresRows,
+      source: "postgres",
+    });
+
+    console.log(
+      "POSTGRES TODAY ACTIVITIES READ",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date: todayDate,
+        count: postgresRows.length,
+      }),
+    );
+
+    return postgresRows;
+  } catch (error) {
+    console.error(
+      "POSTGRES TODAY ACTIVITIES READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date: todayDate,
+        message: error.message,
+      }),
+    );
   }
 
   const sheets = await getSheetsClient();
@@ -1430,6 +1498,7 @@ async function getTodayActivityRows(todayDate, userId = DEFAULT_USER_ID) {
       date: todayDate,
       userId: normalizedUserId,
       rows: [],
+      source: "sheets",
     });
     return [];
   }
@@ -1444,6 +1513,7 @@ async function getTodayActivityRows(todayDate, userId = DEFAULT_USER_ID) {
     date: todayDate,
     userId: normalizedUserId,
     rows: filtered,
+    source: "sheets",
   });
 
   return filtered;
