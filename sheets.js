@@ -1560,9 +1560,29 @@ async function getTodayDietReport(
 ) {
   const { skipDailyStatsSnapshot = false } = options;
   const userId = normalizeUserId(options.userId);
+  const reportStartedAt = Date.now();
+  let stepStartedAt = reportStartedAt;
+
+  const logStepTime = (step) => {
+    const now = Date.now();
+    console.log(
+      "DIET REPORT TIMING",
+      JSON.stringify({
+        userId,
+        date: todayDate,
+        step,
+        stepMs: now - stepStartedAt,
+        totalMs: now - reportStartedAt,
+      }),
+    );
+    stepStartedAt = now;
+  };
 
   const rows = await getTodayRows(todayDate, userId);
+  logStepTime("getTodayRows");
+
   const activityRows = await getTodayActivityRows(todayDate, userId);
+  logStepTime("getTodayActivityRows");
 
   let runningTotal = 0;
 
@@ -1588,6 +1608,7 @@ async function getTodayDietReport(
   const activities = buildNormalizedActivityEntries(
     activityRows.map((row) => toLegacyActivityRowForNormalizer(row, userId)),
   );
+  logStepTime("buildNormalizedActivityEntries");
 
   let intake = 0;
   let activity = 0;
@@ -1627,6 +1648,7 @@ async function getTodayDietReport(
   const deficitKcal =
     parseSheetNumber(await getUserConfigValue("diet_deficit_kcal", userId)) ||
     700;
+  logStepTime("configValues");
 
   const explicitTarget =
     targetCalories == null || targetCalories === ""
@@ -1646,6 +1668,7 @@ async function getTodayDietReport(
     fallbackBaseActivityFactor: Number(process.env.BASE_ACTIVITY_FACTOR) || 1.2,
     userId,
   });
+  logStepTime("getDynamicTdee");
 
   const resolvedTdee =
     tdeeData?.finalTdee ?? roundNumber(manualTarget + deficitKcal, 0);
@@ -1686,6 +1709,7 @@ async function getTodayDietReport(
         todayDate,
         userId,
       );
+      logStepTime("getAverageWeightLast7Days");
 
       const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
         sheets,
@@ -1693,6 +1717,7 @@ async function getTodayDietReport(
         todayDate,
         userId,
       );
+      logStepTime("getAverageBodyFatLast7Days");
 
       await saveDailyStatsSnapshot({
         userId,
@@ -1707,11 +1732,13 @@ async function getTodayDietReport(
           adaptiveModel: true,
         }),
       });
+      logStepTime("saveDailyStatsSnapshot");
     } catch (error) {
       console.log("DAILY STATS SNAPSHOT SKIPPED", error.message);
     }
   }
 
+  logStepTime("totalBeforeReturn");
   return {
     date: todayDate,
     user_id: userId,
