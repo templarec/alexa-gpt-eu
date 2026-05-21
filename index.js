@@ -1303,6 +1303,23 @@ const skill = Alexa.SkillBuilders.custom()
   .create();
 
 exports.handler = async (event, context) => {
+  if (event?.internalType === "keep_warm") {
+    console.log(
+      "KEEP WARM INVOCATION",
+      JSON.stringify({
+        timestamp: new Date().toISOString(),
+        functionName: process.env.AWS_LAMBDA_FUNCTION_NAME || null,
+        functionVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION || null,
+      }),
+    );
+
+    return {
+      ok: true,
+      keepWarm: true,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   if (event?.internalType === "withings_webhook_process") {
     console.log(
       "WITHINGS INTERNAL PROCESS START",
