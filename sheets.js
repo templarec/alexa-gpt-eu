@@ -44,6 +44,10 @@ const cache = {
     value: null,
     expiresAt: 0,
   },
+  configValues: {
+    value: null,
+    expiresAt: 0,
+  },
 };
 
 function isCacheValid(entry) {
@@ -68,7 +72,8 @@ function normalizeUserId(userId) {
 // Helper to get user-specific config value, falling back to global.
 async function getUserConfigValue(key, userId) {
   const normalizedUserId = normalizeUserId(userId);
-  const userSpecificValue = await getConfigValue(`${key}_${normalizedUserId}`);
+  const configValues = await getConfigValuesMap();
+  const userSpecificValue = configValues.get(`${key}_${normalizedUserId}`);
 
   if (
     userSpecificValue !== null &&
@@ -78,7 +83,7 @@ async function getUserConfigValue(key, userId) {
     return userSpecificValue;
   }
 
-  return await getConfigValue(key);
+  return configValues.get(key) || null;
 }
 
 function isIsoDateLike(value) {
@@ -619,7 +624,11 @@ async function getLatestWeight(userId = DEFAULT_USER_ID) {
   return Number.isFinite(parsedWeight) ? parsedWeight : null;
 }
 
-async function getConfigValue(key) {
+async function getConfigValuesMap() {
+  if (isCacheValid(cache.configValues)) {
+    return cache.configValues.value;
+  }
+
   const sheets = await getSheetsClient();
 
   const response = await sheets.spreadsheets.values.get({
@@ -628,17 +637,25 @@ async function getConfigValue(key) {
   });
 
   const rows = response.data.values || [];
+  const values = new Map();
 
   for (let i = 1; i < rows.length; i++) {
     const rowKey = rows[i][0];
     const rowValue = rows[i][1];
 
-    if (rowKey === key) {
-      return rowValue || null;
+    if (rowKey) {
+      values.set(String(rowKey).trim(), rowValue || null);
     }
   }
 
-  return null;
+  setCache(cache.configValues, values);
+
+  return values;
+}
+
+async function getConfigValue(key) {
+  const values = await getConfigValuesMap();
+  return values.get(key) || null;
 }
 
 async function setConfigValue(key, value) {
@@ -666,6 +683,9 @@ async function setConfigValue(key, value) {
         },
       });
 
+      cache.configValues.value = null;
+      cache.configValues.expiresAt = 0;
+
       return;
     }
   }
@@ -678,6 +698,9 @@ async function setConfigValue(key, value) {
       values: [[key, value]],
     },
   });
+
+  cache.configValues.value = null;
+  cache.configValues.expiresAt = 0;
 }
 
 async function upsertDailyStatsRow(row) {
