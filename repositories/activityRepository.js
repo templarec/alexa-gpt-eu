@@ -164,7 +164,57 @@ async function getActivitiesByDate(userSlug, date) {
   ]);
 }
 
+async function getActivitiesByDateRange(userSlug, startDate, endDate) {
+  const userId = await getUserIdBySlug(userSlug);
+
+  if (!userId) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
+
+  const result = await query(
+    `
+    SELECT
+      activity_date,
+      time,
+      source,
+      activity_type,
+      description,
+      calories,
+      distance_km,
+      duration_min,
+      steps,
+      avg_speed_kmh,
+      source_id,
+      source_url,
+      raw_json
+    FROM activities
+    WHERE user_id = $1
+      AND activity_date >= $2
+      AND activity_date <= $3
+    ORDER BY activity_date ASC, time ASC NULLS LAST, id ASC
+    `,
+    [userId, startDate, endDate],
+  );
+
+  return result.rows.map((row) => [
+    formatPostgresDate(row.activity_date),
+    row.time || "",
+    row.source || "",
+    row.activity_type,
+    row.description || "",
+    normalizePostgresCalories(row.calories),
+    normalizePostgresMetric(row.distance_km),
+    normalizePostgresMetric(row.duration_min),
+    normalizePostgresMetric(row.steps),
+    normalizePostgresMetric(row.avg_speed_kmh),
+    row.source_id || "",
+    row.source_url || "",
+    row.raw_json || "",
+  ]);
+}
+
 module.exports = {
   insertActivity,
   getActivitiesByDate,
+  getActivitiesByDateRange,
 };

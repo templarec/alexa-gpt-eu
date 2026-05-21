@@ -139,7 +139,47 @@ async function getMealsByDate(userSlug, date) {
   ]);
 }
 
+async function getMealsByDateRange(userSlug, startDate, endDate) {
+  const userId = await getUserIdBySlug(userSlug);
+
+  if (!userId) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
+
+  const result = await query(
+    `
+    SELECT
+      date,
+      time,
+      meal_type,
+      description,
+      calories,
+      protein,
+      carbs,
+      fat
+    FROM meals
+    WHERE user_id = $1
+      AND date >= $2
+      AND date <= $3
+    ORDER BY date ASC, time ASC NULLS LAST, id ASC
+    `,
+    [userId, startDate, endDate],
+  );
+
+  return result.rows.map((row) => [
+    formatPostgresDate(row.date),
+    row.time || "",
+    row.meal_type,
+    row.description,
+    normalizePostgresCalories(row.calories),
+    normalizePostgresMacro(row.protein),
+    normalizePostgresMacro(row.carbs),
+    normalizePostgresMacro(row.fat),
+  ]);
+}
+
 module.exports = {
   insertMeal,
   getMealsByDate,
+  getMealsByDateRange,
 };

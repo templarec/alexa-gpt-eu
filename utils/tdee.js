@@ -7,6 +7,11 @@ const {
 const { calculateBmrMifflin, calculateBmrKatch } = require("./body-formulas");
 const { buildNormalizedActivityEntries } = require("./activity-normalizer");
 const { maybeDecryptBodyNumber } = require("./crypto");
+const { getBodyMetricsByDateRange } = require("../repositories/bodyRepository");
+const { getMealsByDateRange } = require("../repositories/mealsRepository");
+const {
+  getActivitiesByDateRange,
+} = require("../repositories/activityRepository");
 
 const KCAL_PER_KG = 7700;
 const ADAPTIVE_WINDOW_DAYS = 14;
@@ -93,6 +98,22 @@ function normalizeBodyRow(row, fallbackUserId = DEFAULT_USER_ID) {
     bodyFat: parseBodyNumber(row[offset + 4]),
     raw: row,
   };
+}
+
+function bodyMetricToLegacyRow(metric, userId = DEFAULT_USER_ID) {
+  return [
+    normalizeUserId(userId),
+    metric.date || "",
+    metric.time || "",
+    metric.source || "",
+    metric.weight ?? "",
+    metric.body_fat ?? "",
+    metric.muscle_mass ?? "",
+    metric.water_mass ?? "",
+    metric.fat_mass ?? "",
+    metric.lean_mass ?? "",
+    metric.raw_json || "",
+  ];
 }
 
 function redactSensitiveTdeeLogValue(userId, value) {
@@ -254,29 +275,64 @@ async function getAverageWeightLast7Days(
   todayDate = null,
   userId = DEFAULT_USER_ID,
 ) {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "Body!A:K",
-  });
-
-  const rows = response.data.values || [];
-
-  if (rows.length <= 1) {
-    return null;
-  }
-
   const endDateString = todayDate || new Date().toISOString().slice(0, 10);
   const last7Dates = getLastNDatesInclusive(endDateString, 7);
   const allowedDates = new Set(last7Dates);
+  const startDateString = last7Dates[0];
+
+  let rows = [];
+  const normalizedUserId = normalizeUserId(userId);
+
+  try {
+    const postgresMetrics = await getBodyMetricsByDateRange(
+      normalizedUserId,
+      startDateString,
+      endDateString,
+    );
+
+    rows = postgresMetrics.map((metric) =>
+      bodyMetricToLegacyRow(metric, normalizedUserId),
+    );
+
+    console.log(
+      "POSTGRES TDEE BODY WEIGHT RANGE READ",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateString,
+        count: rows.length,
+      }),
+    );
+  } catch (error) {
+    console.error(
+      "POSTGRES TDEE BODY WEIGHT RANGE READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateString,
+        message: error.message,
+      }),
+    );
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "Body!A:K",
+    });
+
+    rows = (response.data.values || []).slice(1);
+  }
+
+  if (rows.length === 0) {
+    return null;
+  }
 
   if (allowedDates.size === 0) {
     return null;
   }
 
   const dailyWeights = new Map();
-  const normalizedUserId = normalizeUserId(userId);
 
-  for (const row of rows.slice(1)) {
+  for (const row of rows) {
     const body = normalizeBodyRow(row, normalizedUserId);
     const date = body.date;
     const weight = body.weight;
@@ -313,29 +369,64 @@ async function getAverageBodyFatLast7Days(
   todayDate = null,
   userId = DEFAULT_USER_ID,
 ) {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: "Body!A:K",
-  });
-
-  const rows = response.data.values || [];
-
-  if (rows.length <= 1) {
-    return null;
-  }
-
   const endDateString = todayDate || new Date().toISOString().slice(0, 10);
   const last7Dates = getLastNDatesInclusive(endDateString, 7);
   const allowedDates = new Set(last7Dates);
+  const startDateString = last7Dates[0];
+
+  let rows = [];
+  const normalizedUserId = normalizeUserId(userId);
+
+  try {
+    const postgresMetrics = await getBodyMetricsByDateRange(
+      normalizedUserId,
+      startDateString,
+      endDateString,
+    );
+
+    rows = postgresMetrics.map((metric) =>
+      bodyMetricToLegacyRow(metric, normalizedUserId),
+    );
+
+    console.log(
+      "POSTGRES TDEE BODY FAT RANGE READ",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateString,
+        count: rows.length,
+      }),
+    );
+  } catch (error) {
+    console.error(
+      "POSTGRES TDEE BODY FAT RANGE READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateString,
+        message: error.message,
+      }),
+    );
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "Body!A:K",
+    });
+
+    rows = (response.data.values || []).slice(1);
+  }
+
+  if (rows.length === 0) {
+    return null;
+  }
 
   if (allowedDates.size === 0) {
     return null;
   }
 
   const dailyBodyFat = new Map();
-  const normalizedUserId = normalizeUserId(userId);
 
-  for (const row of rows.slice(1)) {
+  for (const row of rows) {
     const body = normalizeBodyRow(row, normalizedUserId);
     const date = body.date;
     const bodyFat = body.bodyFat;
@@ -386,44 +477,97 @@ async function getAdaptiveTdeeLast14Days(
 
   const dateSet = new Set(last14Dates);
   const normalizedUserId = normalizeUserId(userId);
+  const startDateString = last14Dates[0];
+  const endDateStringForRange = last14Dates[last14Dates.length - 1];
 
-  const [mealsResponse, activityResponse, bodyResponse] = await Promise.all([
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "Meals!A:I",
-    }),
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "activity!A:N",
-    }),
-    sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "Body!A:K",
-    }),
-  ]);
+  let rawMealRows = [];
+  let activityRows = [];
+  let bodyRows = [];
 
-  const rawMealRows = (mealsResponse.data.values || [])
-    .slice(1)
-    .filter((row) => {
+  try {
+    const [postgresMealRows, postgresActivityRows, postgresBodyMetrics] =
+      await Promise.all([
+        getMealsByDateRange(
+          normalizedUserId,
+          startDateString,
+          endDateStringForRange,
+        ),
+        getActivitiesByDateRange(
+          normalizedUserId,
+          startDateString,
+          endDateStringForRange,
+        ),
+        getBodyMetricsByDateRange(
+          normalizedUserId,
+          startDateString,
+          endDateStringForRange,
+        ),
+      ]);
+
+    rawMealRows = postgresMealRows;
+    activityRows = postgresActivityRows;
+    bodyRows = postgresBodyMetrics.map((metric) =>
+      bodyMetricToLegacyRow(metric, normalizedUserId),
+    );
+
+    console.log(
+      "POSTGRES ADAPTIVE TDEE RANGE READ",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateStringForRange,
+        mealsCount: rawMealRows.length,
+        activitiesCount: activityRows.length,
+        bodyCount: bodyRows.length,
+      }),
+    );
+  } catch (error) {
+    console.error(
+      "POSTGRES ADAPTIVE TDEE RANGE READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        startDate: startDateString,
+        endDate: endDateStringForRange,
+        message: error.message,
+      }),
+    );
+
+    const [mealsResponse, activityResponse, bodyResponse] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "Meals!A:I",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "activity!A:N",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: "Body!A:K",
+      }),
+    ]);
+
+    rawMealRows = (mealsResponse.data.values || []).slice(1).filter((row) => {
       const meal = normalizeMealRow(row, normalizedUserId);
       return meal.user_id === normalizedUserId && dateSet.has(meal.date);
     });
 
-  const mealRows = filterMealRowsForAdaptive(rawMealRows, normalizedUserId);
+    activityRows = (activityResponse.data.values || [])
+      .slice(1)
+      .filter((row) => {
+        const activity = normalizeActivityRow(row, normalizedUserId);
+        return (
+          activity.user_id === normalizedUserId && dateSet.has(activity.date)
+        );
+      });
 
-  const activityRows = (activityResponse.data.values || [])
-    .slice(1)
-    .filter((row) => {
-      const activity = normalizeActivityRow(row, normalizedUserId);
-      return (
-        activity.user_id === normalizedUserId && dateSet.has(activity.date)
-      );
+    bodyRows = (bodyResponse.data.values || []).slice(1).filter((row) => {
+      const body = normalizeBodyRow(row, normalizedUserId);
+      return body.user_id === normalizedUserId && dateSet.has(body.date);
     });
+  }
 
-  const bodyRows = (bodyResponse.data.values || []).slice(1).filter((row) => {
-    const body = normalizeBodyRow(row, normalizedUserId);
-    return body.user_id === normalizedUserId && dateSet.has(body.date);
-  });
+  const mealRows = filterMealRowsForAdaptive(rawMealRows, normalizedUserId);
 
   if (mealRows.length === 0) {
     return null;

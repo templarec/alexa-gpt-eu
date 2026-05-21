@@ -116,8 +116,55 @@ async function getLatestWeightFromPostgres(userSlug) {
   return Number.isFinite(parsedWeight) ? parsedWeight : null;
 }
 
+async function getBodyMetricsByDateRange(userSlug, startDate, endDate) {
+  const userId = await getUserIdBySlug(userSlug);
+
+  if (!userId) {
+    throw new Error(`User not found: ${userSlug}`);
+  }
+
+  const result = await query(
+    `
+    SELECT
+      bm.date,
+      bm.time,
+      bm.source,
+      bm.weight,
+      bm.body_fat,
+      bm.muscle_mass,
+      bm.water_mass,
+      bm.fat_mass,
+      bm.lean_mass,
+      bm.raw_json
+    FROM body_metrics bm
+    WHERE bm.user_id = $1
+      AND bm.date >= $2
+      AND bm.date <= $3
+    ORDER BY bm.date ASC, bm.time ASC NULLS LAST, bm.created_at ASC
+    `,
+    [userId, startDate, endDate],
+  );
+
+  return result.rows.map((row) => ({
+    date:
+      row.date instanceof Date
+        ? row.date.toISOString().slice(0, 10)
+        : String(row.date).slice(0, 10),
+    time: row.time || "",
+    source: row.source || "",
+    weight: maybeDecryptBodyNumber(row.weight),
+    body_fat: maybeDecryptBodyNumber(row.body_fat),
+    muscle_mass: maybeDecryptBodyNumber(row.muscle_mass),
+    water_mass: maybeDecryptBodyNumber(row.water_mass),
+    fat_mass: maybeDecryptBodyNumber(row.fat_mass),
+    lean_mass: maybeDecryptBodyNumber(row.lean_mass),
+    raw_json: row.raw_json || null,
+  }));
+}
+
 module.exports = {
   insertBodyMetric,
   getLatestBodyMetric,
   getLatestWeightFromPostgres,
+  getBodyMetricsByDateRange,
 };
