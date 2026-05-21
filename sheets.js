@@ -1805,23 +1805,9 @@ async function getTodayDietReport(
 
   if (!skipDailyStatsSnapshot) {
     try {
-      const sheets = await getSheetsClient();
-
-      const averageWeightLast7Days = await getAverageWeightLast7Days(
-        sheets,
-        process.env.SHEET_ID,
-        todayDate,
-        userId,
-      );
-      logStepTime("getAverageWeightLast7Days");
-
-      const averageBodyFatLast7Days = await getAverageBodyFatLast7Days(
-        sheets,
-        process.env.SHEET_ID,
-        todayDate,
-        userId,
-      );
-      logStepTime("getAverageBodyFatLast7Days");
+      const averageWeightLast7Days = tdeeData?.averageWeightLast7Days ?? null;
+      const averageBodyFatLast7Days = tdeeData?.averageBodyFatLast7Days ?? null;
+      logStepTime("reuseTdeeAveragesForSnapshot");
 
       await saveDailyStatsSnapshot({
         userId,

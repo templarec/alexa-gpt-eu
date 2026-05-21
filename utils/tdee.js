@@ -756,6 +756,8 @@ async function getDynamicTdee({
       adaptiveTdeeCapped: false,
       adaptiveTdeeSuspicious: false,
       finalTdee: formulaTdee,
+      averageWeightLast7Days: averageWeightLast7Days ?? null,
+      averageBodyFatLast7Days: bodyFatPercent ?? null,
     };
   }
 
@@ -804,6 +806,8 @@ async function getDynamicTdee({
       adaptiveTdeeCapped: false,
       adaptiveTdeeSuspicious: false,
       finalTdee: formulaTdee,
+      averageWeightLast7Days: averageWeightLast7Days ?? null,
+      averageBodyFatLast7Days: bodyFatPercent ?? null,
     };
   }
 
@@ -820,6 +824,8 @@ async function getDynamicTdee({
       adaptiveTdeeCapped,
       adaptiveTdeeSuspicious,
       finalTdee: formulaTdee,
+      averageWeightLast7Days: averageWeightLast7Days ?? null,
+      averageBodyFatLast7Days: bodyFatPercent ?? null,
     };
   }
 
@@ -872,6 +878,8 @@ async function getDynamicTdee({
     adaptiveTdeeCapped,
     adaptiveTdeeSuspicious,
     finalTdee,
+    averageWeightLast7Days: averageWeightLast7Days ?? null,
+    averageBodyFatLast7Days: bodyFatPercent ?? null,
   };
 }
 
