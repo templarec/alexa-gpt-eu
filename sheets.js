@@ -6,6 +6,9 @@ const {
 } = require("./repositories/bodyRepository");
 const { getMealsByDate } = require("./repositories/mealsRepository");
 const { getActivitiesByDate } = require("./repositories/activityRepository");
+const {
+  getUserConfigValueFromPostgres,
+} = require("./repositories/configRepository");
 const { parseSheetNumber, roundNumber } = require("./utils/numbers-and-dates");
 const {
   maybeEncryptBodyValue,
@@ -69,9 +72,34 @@ function normalizeUserId(userId) {
   );
 }
 
-// Helper to get user-specific config value, falling back to global.
+// Helper to get user-specific config value, falling back to Google Sheets legacy config.
 async function getUserConfigValue(key, userId) {
   const normalizedUserId = normalizeUserId(userId);
+
+  try {
+    const postgresValue = await getUserConfigValueFromPostgres(
+      normalizedUserId,
+      key,
+    );
+
+    if (
+      postgresValue !== null &&
+      postgresValue !== undefined &&
+      postgresValue !== ""
+    ) {
+      return postgresValue;
+    }
+  } catch (error) {
+    console.error(
+      "POSTGRES CONFIG READ FAILED - FALLING BACK TO SHEETS",
+      JSON.stringify({
+        userId: normalizedUserId,
+        key,
+        message: error.message,
+      }),
+    );
+  }
+
   const configValues = await getConfigValuesMap();
   const userSpecificValue = configValues.get(`${key}_${normalizedUserId}`);
 
