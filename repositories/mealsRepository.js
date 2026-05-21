@@ -40,7 +40,7 @@ function normalizePostgresCalories(value) {
 function normalizePostgresMacro(value) {
   const number = parseSheetNumber(value);
 
-  if (Math.abs(number) > 500) {
+  if (Math.abs(number) >= 100) {
     return number / 100;
   }
 
