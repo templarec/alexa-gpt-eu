@@ -15,6 +15,38 @@ async function getUserIdBySlug(slug) {
   return result.rows[0]?.id || null;
 }
 
+function formatPostgresDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
+}
+
+function normalizePostgresCalories(value) {
+  const number = parseSheetNumber(value);
+
+  if (Math.abs(number) > 3000) {
+    return number / 100;
+  }
+
+  return number;
+}
+
+function normalizePostgresMetric(value) {
+  const number = parseSheetNumber(value);
+
+  if (Math.abs(number) > 100000) {
+    return number / 100;
+  }
+
+  return number;
+}
+
 async function insertActivity({
   userSlug,
   activityDate,
@@ -116,16 +148,16 @@ async function getActivitiesByDate(userSlug, date) {
   );
 
   return result.rows.map((row) => [
-    row.activity_date,
+    formatPostgresDate(row.activity_date),
     row.time || "",
     row.source || "",
     row.activity_type,
     row.description || "",
-    parseSheetNumber(row.calories),
-    parseSheetNumber(row.distance_km),
-    parseSheetNumber(row.duration_min),
-    parseSheetNumber(row.steps),
-    parseSheetNumber(row.avg_speed_kmh),
+    normalizePostgresCalories(row.calories),
+    normalizePostgresMetric(row.distance_km),
+    normalizePostgresMetric(row.duration_min),
+    normalizePostgresMetric(row.steps),
+    normalizePostgresMetric(row.avg_speed_kmh),
     row.source_id || "",
     row.source_url || "",
     row.raw_json || "",

@@ -15,6 +15,38 @@ async function getUserIdBySlug(slug) {
   return result.rows[0]?.id || null;
 }
 
+function formatPostgresDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
+}
+
+function normalizePostgresCalories(value) {
+  const number = parseSheetNumber(value);
+
+  if (Math.abs(number) > 3000) {
+    return number / 100;
+  }
+
+  return number;
+}
+
+function normalizePostgresMacro(value) {
+  const number = parseSheetNumber(value);
+
+  if (Math.abs(number) > 500) {
+    return number / 100;
+  }
+
+  return number;
+}
+
 async function insertMeal({
   userSlug,
   date,
@@ -96,14 +128,14 @@ async function getMealsByDate(userSlug, date) {
   );
 
   return result.rows.map((row) => [
-    row.date,
+    formatPostgresDate(row.date),
     row.time || "",
     row.meal_type,
     row.description,
-    parseSheetNumber(row.calories),
-    parseSheetNumber(row.protein),
-    parseSheetNumber(row.carbs),
-    parseSheetNumber(row.fat),
+    normalizePostgresCalories(row.calories),
+    normalizePostgresMacro(row.protein),
+    normalizePostgresMacro(row.carbs),
+    normalizePostgresMacro(row.fat),
   ]);
 }
 
