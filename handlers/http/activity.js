@@ -239,33 +239,45 @@ async function createActivityFromHttp(
     JSON.stringify(body),
   ];
 
-  const result = await appendActivityRow(row);
+  try {
+    await insertActivity({
+      userSlug: normalizedUserId,
+      activityDate,
+      time: activityTime,
+      source,
+      activityType,
+      description,
+      calories: computedCalories,
+      distanceKm,
+      durationMin: effectiveDurationMin,
+      steps,
+      avgSpeedKmh,
+      sourceId: sourceId || null,
+      sourceUrl: sourceUrl || null,
+      rawJson: body,
+    });
 
-  if (!result || (!result.skipped && !result.updated)) {
-    try {
-      await insertActivity({
-        userSlug: normalizedUserId,
-        activityDate,
-        time: activityTime,
-        source,
-        activityType,
-        description,
-        calories: computedCalories,
-        distanceKm,
-        durationMin: effectiveDurationMin,
-        steps,
-        avgSpeedKmh,
-        sourceId: sourceId || null,
-        sourceUrl: sourceUrl || null,
-        rawJson: body,
-      });
+    console.log("POSTGRES ACTIVITY UPSERTED");
+  } catch (error) {
+    console.error("POSTGRES ACTIVITY UPSERT FAILED", {
+      message: error.message,
+    });
 
-      console.log("POSTGRES ACTIVITY INSERTED");
-    } catch (error) {
-      console.error("POSTGRES ACTIVITY INSERT FAILED", {
-        message: error.message,
-      });
-    }
+    return jsonResponse(500, {
+      error: "postgres_activity_write_failed",
+    });
+  }
+
+  let result = null;
+
+  try {
+    result = await appendActivityRow(row);
+  } catch (error) {
+    console.error("SHEETS ACTIVITY SHADOW WRITE FAILED", {
+      message: error.message,
+      sourceId,
+      userId: normalizedUserId,
+    });
   }
 
   if (result && result.updated) {

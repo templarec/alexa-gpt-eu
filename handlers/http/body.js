@@ -1,5 +1,8 @@
 const { appendBodyRow } = require("../../sheets");
-const { getLatestBodyMetric } = require("../../repositories/bodyRepository");
+const {
+  getLatestBodyMetric,
+  insertBodyMetric,
+} = require("../../repositories/bodyRepository");
 const { maybeDecryptBodyNumber } = require("../../utils/crypto");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
@@ -94,7 +97,46 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
     JSON.stringify(safeRawBodyPayload),
   ];
 
-  await appendBodyRow(row);
+  try {
+    await insertBodyMetric({
+      userSlug: normalizedUserId,
+      date: bodyDate,
+      time: bodyTime,
+      source,
+      weight,
+      bodyFat: bodyFat === "" ? null : bodyFat,
+      muscleMass: muscleMass === "" ? null : muscleMass,
+      waterMass: waterMass === "" ? null : waterMass,
+      fatMass: fatMass === "" ? null : fatMass,
+      leanMass: leanMass === "" ? null : leanMass,
+      rawJson: safeRawBodyPayload,
+    });
+
+    console.log("POSTGRES BODY METRIC INSERTED");
+  } catch (error) {
+    console.error("POSTGRES BODY METRIC INSERT FAILED", {
+      message: error.message,
+      userId: normalizedUserId,
+      date: bodyDate,
+      source,
+    });
+
+    return jsonResponse(500, {
+      success: false,
+      error: "postgres_body_write_failed",
+    });
+  }
+
+  try {
+    await appendBodyRow(row);
+  } catch (error) {
+    console.error("SHEETS BODY SHADOW WRITE FAILED", {
+      message: error.message,
+      userId: normalizedUserId,
+      date: bodyDate,
+      source,
+    });
+  }
 
   return jsonResponse(200, {
     success: true,
