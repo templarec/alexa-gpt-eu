@@ -1187,6 +1187,37 @@ async function httpHandler(event) {
 
     const context = await getWeekDietContext(referenceDate, { userId });
 
+    try {
+      await upsertWeeklyStatsRow({
+        user_id: userId,
+        week_start: context.week_start,
+        week_end: context.week_end,
+        intake: context.summary.intake,
+        activity: context.summary.activity,
+        net: context.summary.net,
+        target: context.summary.target,
+        remaining: context.summary.remaining,
+        protein: context.summary.protein,
+        carbs: context.summary.carbs,
+        fat: context.summary.fat,
+        recent_meals_json: JSON.stringify(context.recent_meals || []),
+        food_frequency_json: JSON.stringify(context.food_frequency || {}),
+        variety_warnings_json: JSON.stringify(context.variety_warnings || []),
+        generated_at: new Date().toISOString(),
+        source: "refresh",
+      });
+    } catch (error) {
+      console.error(
+        "WEEKLY STATS REFRESH FAILED",
+        JSON.stringify({
+          userId,
+          referenceDate,
+          weekStart: context.week_start,
+          message: String(error?.message || error),
+        }),
+      );
+    }
+
     return jsonResponse(200, {
       ok: true,
       context,
