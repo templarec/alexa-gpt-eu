@@ -90,9 +90,22 @@ async function insertActivity({
     VALUES (
       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
     )
-    ON CONFLICT (source_id)
+    ON CONFLICT (user_id, source_id)
     WHERE source_id IS NOT NULL
-    DO NOTHING
+    DO UPDATE SET
+      activity_date = EXCLUDED.activity_date,
+      time = EXCLUDED.time,
+      source = EXCLUDED.source,
+      activity_type = EXCLUDED.activity_type,
+      description = EXCLUDED.description,
+      calories = EXCLUDED.calories,
+      distance_km = EXCLUDED.distance_km,
+      duration_min = EXCLUDED.duration_min,
+      steps = EXCLUDED.steps,
+      avg_speed_kmh = EXCLUDED.avg_speed_kmh,
+      source_url = EXCLUDED.source_url,
+      raw_json = EXCLUDED.raw_json,
+      updated_at = NOW()
     RETURNING id
     `,
     [
