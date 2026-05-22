@@ -382,29 +382,84 @@ async function appendBodyRow(row) {
 async function appendActivityRow(row) {
   const sheets = await getSheetsClient();
   const activity = normalizeActivityRow(row);
-  const sourceId = activity.source_id;
+  const sourceId = String(activity.source_id || "").trim();
   const date = activity.date;
   const source = activity.source;
   const userId = activity.user_id;
+  const isWithingsSteps = sourceId.startsWith("withings-steps-");
 
-  if (sourceId && (await hasActivitySourceId(sourceId, userId))) {
-    if (String(sourceId).startsWith("withings-steps-")) {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: process.env.SHEET_ID,
-        range: "activity!A:N",
+  const updateTodayActivitiesCache = (updatedRow) => {
+    if (
+      !isCacheValid(cache.todayActivities) ||
+      cache.todayActivities.value?.key !== getCacheDateKey(date, userId)
+    ) {
+      return;
+    }
+
+    const currentRows = [...(cache.todayActivities.value.rows || [])];
+    const cachedIndex = currentRows.findIndex((cachedRow) => {
+      const cachedActivity = normalizeActivityRow(cachedRow, userId);
+      return (
+        String(cachedActivity.source_id || "").trim() === sourceId &&
+        cachedActivity.user_id === userId
+      );
+    });
+
+    if (cachedIndex !== -1) {
+      currentRows[cachedIndex] = updatedRow;
+    } else {
+      currentRows.push(updatedRow);
+    }
+
+    setCache(cache.todayActivities, {
+      key: getCacheDateKey(date, userId),
+      date,
+      userId,
+      rows: currentRows,
+    });
+  };
+
+  const addSourceIdToCache = () => {
+    if (!sourceId) {
+      return;
+    }
+
+    const sourceIdsCacheKey = `activitySourceIds:${userId}`;
+    const currentIds =
+      isCacheValid(cache.activitySourceIds) &&
+      cache.activitySourceIds.value?.key === sourceIdsCacheKey
+        ? cache.activitySourceIds.value.sourceIds
+        : [];
+
+    if (!currentIds.includes(sourceId)) {
+      setCache(cache.activitySourceIds, {
+        key: sourceIdsCacheKey,
+        userId,
+        sourceIds: [...currentIds, sourceId],
       });
+    }
+  };
 
-      const rows = res.data.values || [];
-      const existingIndex = rows.findIndex((r, idx) => {
-        if (idx === 0) return false;
-        const existingActivity = normalizeActivityRow(r);
-        return (
-          existingActivity.source_id === String(sourceId) &&
-          existingActivity.user_id === userId
-        );
-      });
+  if (sourceId) {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SHEET_ID,
+      range: "activity!A:N",
+    });
 
-      if (existingIndex !== -1) {
+    const rows = response.data.values || [];
+    const existingIndex = rows.findIndex((existingRow, idx) => {
+      if (idx === 0) return false;
+
+      const existingActivity = normalizeActivityRow(existingRow, userId);
+
+      return (
+        String(existingActivity.source_id || "").trim() === sourceId &&
+        existingActivity.user_id === userId
+      );
+    });
+
+    if (existingIndex !== -1) {
+      if (isWithingsSteps) {
         const sheetRowNumber = existingIndex + 1;
 
         await sheets.spreadsheets.values.update({
@@ -416,60 +471,47 @@ async function appendActivityRow(row) {
           },
         });
 
-        if (
-          isCacheValid(cache.todayActivities) &&
-          cache.todayActivities.value?.key === getCacheDateKey(date, userId)
-        ) {
-          const currentRows = [...(cache.todayActivities.value.rows || [])];
-          const cachedIndex = currentRows.findIndex(
-            (r) => normalizeActivityRow(r).source_id === String(sourceId),
-          );
-
-          if (cachedIndex !== -1) {
-            currentRows[cachedIndex] = row;
-          } else {
-            currentRows.push(row);
-          }
-
-          setCache(cache.todayActivities, {
-            key: getCacheDateKey(date, userId),
-            date,
-            userId,
-            rows: currentRows,
-          });
-        }
+        updateTodayActivitiesCache(row);
+        addSourceIdToCache();
 
         console.log(
           "SHEET ACTIVITY UPDATED",
           JSON.stringify({
-            sourceId: String(sourceId),
+            userId,
+            sourceId,
             date,
             source,
+            rowNumber: sheetRowNumber,
           }),
         );
 
         return {
           success: true,
           updated: true,
-          sourceId: String(sourceId),
+          sourceId,
           rowNumber: sheetRowNumber,
         };
       }
+
+      console.log(
+        "SHEET ACTIVITY SKIPPED DUPLICATE",
+        JSON.stringify({
+          userId,
+          sourceId,
+          date,
+          source,
+        }),
+      );
+
+      addSourceIdToCache();
+
+      return {
+        success: true,
+        skipped: true,
+        reason: "duplicate_source_id",
+        sourceId,
+      };
     }
-
-    console.log(
-      "SHEET ACTIVITY SKIPPED DUPLICATE",
-      JSON.stringify({
-        sourceId: String(sourceId),
-      }),
-    );
-
-    return {
-      success: true,
-      skipped: true,
-      reason: "duplicate_source_id",
-      sourceId: String(sourceId),
-    };
   }
 
   await sheets.spreadsheets.values.append({
@@ -484,28 +526,14 @@ async function appendActivityRow(row) {
   console.log(
     "SHEET ACTIVITY ROW WRITTEN",
     JSON.stringify({
-      sourceId: sourceId ? String(sourceId) : null,
+      userId,
+      sourceId: sourceId || null,
       date,
       source,
     }),
   );
 
-  if (sourceId) {
-    const sourceIdsCacheKey = `activitySourceIds:${userId}`;
-    const currentIds =
-      isCacheValid(cache.activitySourceIds) &&
-      cache.activitySourceIds.value?.key === sourceIdsCacheKey
-        ? cache.activitySourceIds.value.sourceIds
-        : [];
-
-    if (!currentIds.includes(String(sourceId))) {
-      setCache(cache.activitySourceIds, {
-        key: sourceIdsCacheKey,
-        userId,
-        sourceIds: [...currentIds, String(sourceId)],
-      });
-    }
-  }
+  addSourceIdToCache();
 
   if (
     isCacheValid(cache.todayActivities) &&
@@ -522,7 +550,7 @@ async function appendActivityRow(row) {
   return {
     success: true,
     skipped: false,
-    sourceId: sourceId ? String(sourceId) : null,
+    sourceId: sourceId || null,
   };
 }
 
@@ -532,13 +560,14 @@ async function hasActivitySourceId(sourceId, userId = DEFAULT_USER_ID) {
   }
 
   const normalizedUserId = normalizeUserId(userId);
+  const normalizedSourceId = String(sourceId || "").trim();
   const cacheKey = `activitySourceIds:${normalizedUserId}`;
 
   if (
     isCacheValid(cache.activitySourceIds) &&
     cache.activitySourceIds.value?.key === cacheKey
   ) {
-    return cache.activitySourceIds.value.sourceIds.includes(String(sourceId));
+    return cache.activitySourceIds.value.sourceIds.includes(normalizedSourceId);
   }
 
   const sheets = await getSheetsClient();
@@ -552,7 +581,7 @@ async function hasActivitySourceId(sourceId, userId = DEFAULT_USER_ID) {
     .slice(1)
     .map((row) => normalizeActivityRow(row))
     .filter((activity) => activity.user_id === normalizedUserId)
-    .map((activity) => String(activity.source_id || ""))
+    .map((activity) => String(activity.source_id || "").trim())
     .filter(Boolean);
 
   setCache(cache.activitySourceIds, {
@@ -561,7 +590,7 @@ async function hasActivitySourceId(sourceId, userId = DEFAULT_USER_ID) {
     sourceIds,
   });
 
-  return sourceIds.includes(String(sourceId));
+  return sourceIds.includes(normalizedSourceId);
 }
 
 async function getLastBodyRow(userId = DEFAULT_USER_ID) {
