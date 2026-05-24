@@ -1,10 +1,13 @@
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
+
 const {
   getAllMeals,
   getWeekDietContext,
   upsertWeeklyStatsRow,
 } = require("./sheets");
 
-const DEFAULT_USER_ID = "lorenzo";
 const BACKFILL_USER_ID = String(process.env.BACKFILL_USER_ID || DEFAULT_USER_ID)
   .trim()
   .toLowerCase();
@@ -19,9 +22,11 @@ function getMonday(dateString) {
 }
 
 function normalizeUserId(value) {
-  return String(value || DEFAULT_USER_ID)
-    .trim()
-    .toLowerCase();
+  return (
+    String(value || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
 }
 
 function getMealUserIdAndDate(row) {

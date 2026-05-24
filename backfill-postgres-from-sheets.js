@@ -9,6 +9,10 @@ const { query } = require("./db/postgres");
 
 const { maybeDecryptBodyNumber } = require("./utils/crypto");
 
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
+
 function hashRow(parts) {
   return crypto
     .createHash("sha256")
@@ -32,11 +36,11 @@ async function getUserMap() {
 }
 
 function normalizeUserId(value) {
-  if (!value) {
-    return "lorenzo";
-  }
-
-  return String(value).trim().toLowerCase();
+  return (
+    String(value || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
 }
 
 function parseNullableNumber(value) {
