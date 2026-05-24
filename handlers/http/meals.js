@@ -3,6 +3,18 @@ const { insertMeal } = require("../../repositories/mealsRepository");
 const { analyzeMeal } = require("../../openai");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
+
+function normalizeUserId(userId) {
+  return (
+    String(userId || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
+}
+
 function isIsoDateLike(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -31,13 +43,13 @@ async function exportMeals({ userId } = {}) {
     return jsonResponse(200, rows);
   }
 
-  const normalizedUserId = String(userId).trim().toLowerCase();
+  const normalizedUserId = normalizeUserId(userId);
 
   const filteredRows = rows.filter((row, index) => {
     if (index === 0) return true;
 
     if (!hasUserIdColumn(row)) {
-      return normalizedUserId === "lorenzo";
+      return normalizedUserId === DEFAULT_USER_ID;
     }
 
     return (
@@ -50,7 +62,10 @@ async function exportMeals({ userId } = {}) {
   return jsonResponse(200, filteredRows);
 }
 
-async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
+async function createMealFromHttp(
+  event,
+  { date, time, userId = DEFAULT_USER_ID },
+) {
   const body = parseJsonBody(event);
 
   const mealType = String(body.meal_type || "").trim();
@@ -72,7 +87,7 @@ async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
     });
   }
 
-  const normalizedUserId = String(userId).trim().toLowerCase() || "lorenzo";
+  const normalizedUserId = normalizeUserId(userId);
   const todayRows = await getTodayMealRows(date, normalizedUserId);
   const previousTotal = calculateRunningTotalFromRows(todayRows);
   const newTotal = previousTotal + calories;
@@ -88,8 +103,6 @@ async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
     carbs,
     fat,
   ];
-
-  await appendMealRow(row);
 
   try {
     await insertMeal({
@@ -109,6 +122,25 @@ async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
   } catch (error) {
     console.error("POSTGRES MEAL INSERT FAILED", {
       message: error.message,
+      userId: normalizedUserId,
+      date,
+      mealType,
+    });
+
+    return jsonResponse(500, {
+      success: false,
+      error: "postgres_meal_write_failed",
+    });
+  }
+
+  try {
+    await appendMealRow(row);
+  } catch (error) {
+    console.error("SHEETS MEAL SHADOW WRITE FAILED", {
+      message: error.message,
+      userId: normalizedUserId,
+      date,
+      mealType,
     });
   }
 
@@ -131,7 +163,7 @@ async function createMealFromHttp(event, { date, time, userId = "lorenzo" }) {
 
 async function createAnalyzedMealFromHttp(
   event,
-  { date, time, userId = "lorenzo" },
+  { date, time, userId = DEFAULT_USER_ID },
 ) {
   const body = parseJsonBody(event);
 
@@ -159,7 +191,7 @@ async function createAnalyzedMealFromHttp(
       });
     }
 
-    const normalizedUserId = String(userId).trim().toLowerCase() || "lorenzo";
+    const normalizedUserId = normalizeUserId(userId);
     const todayRows = await getTodayMealRows(date, normalizedUserId);
     const previousTotal = calculateRunningTotalFromRows(todayRows);
     const calories = Number(analysis.total.calories || 0);
@@ -180,8 +212,6 @@ async function createAnalyzedMealFromHttp(
       fat,
     ];
 
-    await appendMealRow(row);
-
     try {
       await insertMeal({
         userSlug: normalizedUserId,
@@ -200,6 +230,25 @@ async function createAnalyzedMealFromHttp(
     } catch (error) {
       console.error("POSTGRES MEAL INSERT FAILED", {
         message: error.message,
+        userId: normalizedUserId,
+        date,
+        mealType: analysis.meal_type || mealType,
+      });
+
+      return jsonResponse(500, {
+        success: false,
+        error: "postgres_meal_write_failed",
+      });
+    }
+
+    try {
+      await appendMealRow(row);
+    } catch (error) {
+      console.error("SHEETS MEAL SHADOW WRITE FAILED", {
+        message: error.message,
+        userId: normalizedUserId,
+        date,
+        mealType: analysis.meal_type || mealType,
       });
     }
 
@@ -227,8 +276,8 @@ async function createAnalyzedMealFromHttp(
   }
 }
 
-async function getMealsToday({ date, userId = "lorenzo" }) {
-  const normalizedUserId = String(userId).trim().toLowerCase() || "lorenzo";
+async function getMealsToday({ date, userId = DEFAULT_USER_ID }) {
+  const normalizedUserId = normalizeUserId(userId);
   const rows = await getTodayMealRows(date, normalizedUserId);
   return jsonResponse(200, rows);
 }

@@ -20,11 +20,51 @@ function jsonResponse(statusCode, body) {
   };
 }
 
+function getHeaderValue(headers, name) {
+  const target = String(name).toLowerCase();
+
+  const foundKey = Object.keys(headers || {}).find(
+    (key) => String(key).toLowerCase() === target,
+  );
+
+  return foundKey ? headers[foundKey] : null;
+}
+
+function getAllowedApiKeys() {
+  const keys = new Set();
+
+  if (process.env.DIETA_API_KEY) {
+    keys.add(String(process.env.DIETA_API_KEY));
+  }
+
+  if (process.env.API_KEY_ELISA) {
+    keys.add(String(process.env.API_KEY_ELISA));
+  }
+
+  if (process.env.API_KEY_USER_MAP) {
+    try {
+      const parsed = JSON.parse(process.env.API_KEY_USER_MAP);
+
+      for (const apiKey of Object.keys(parsed || {})) {
+        if (!apiKey) {
+          continue;
+        }
+
+        keys.add(String(apiKey));
+      }
+    } catch (error) {
+      console.error(
+        "API KEY USER MAP PARSE FAILED",
+        JSON.stringify({ message: String(error?.message || error) }),
+      );
+    }
+  }
+
+  return [...keys];
+}
+
 function authorizeHttpRequest(event) {
-  const allowedApiKeys = [
-    process.env.DIETA_API_KEY,
-    process.env.API_KEY_ELISA,
-  ].filter(Boolean);
+  const allowedApiKeys = getAllowedApiKeys();
 
   if (allowedApiKeys.length === 0) {
     throw new Error("Nessuna API key configurata");
@@ -32,27 +72,22 @@ function authorizeHttpRequest(event) {
 
   const headers = event.headers || {};
 
-  const providedApiKey =
-    headers["x-api-key"] ||
-    headers["X-API-Key"] ||
-    headers["x-api-Key"] ||
-    headers["X-Api-Key"] ||
-    headers["X-API-KEY"];
+  const providedApiKey = getHeaderValue(headers, "x-api-key");
+  const authHeader = getHeaderValue(headers, "authorization");
 
-  const authHeader = headers["authorization"] || headers["Authorization"];
-
-  if (providedApiKey && allowedApiKeys.includes(providedApiKey)) {
+  if (providedApiKey && allowedApiKeys.includes(String(providedApiKey))) {
     return true;
   }
 
-  if (
-    authHeader &&
-    allowedApiKeys.some((key) => authHeader.trim() === `Bearer ${key}`)
-  ) {
-    return true;
+  if (!authHeader) {
+    return false;
   }
 
-  return false;
+  const bearerToken = String(authHeader)
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+
+  return allowedApiKeys.includes(bearerToken);
 }
 
 module.exports = {

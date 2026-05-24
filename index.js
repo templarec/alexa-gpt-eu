@@ -91,7 +91,71 @@ function tryParseJsonBody(event) {
   }
 }
 
-// Helper to resolve the user ID from body or query params, fallback to "lorenzo"
+function getDefaultUserId() {
+  return String(process.env.DEFAULT_USER_ID || "lorenzo")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeUserId(value) {
+  return String(value || getDefaultUserId())
+    .trim()
+    .toLowerCase();
+}
+
+function getHeaderValue(headers, name) {
+  const target = String(name).toLowerCase();
+  const foundKey = Object.keys(headers || {}).find(
+    (key) => String(key).toLowerCase() === target,
+  );
+
+  return foundKey ? headers[foundKey] : null;
+}
+
+function getApiKeyUserMap() {
+  const map = new Map();
+
+  if (process.env.DIETA_API_KEY) {
+    map.set(String(process.env.DIETA_API_KEY), getDefaultUserId());
+  }
+
+  if (process.env.API_KEY_ELISA) {
+    map.set(String(process.env.API_KEY_ELISA), "elisa");
+  }
+
+  if (!process.env.API_KEY_USER_MAP) {
+    return map;
+  }
+
+  try {
+    const parsed = JSON.parse(process.env.API_KEY_USER_MAP);
+
+    for (const [apiKey, userId] of Object.entries(parsed || {})) {
+      if (!apiKey || !userId) {
+        continue;
+      }
+
+      map.set(String(apiKey), normalizeUserId(userId));
+    }
+  } catch (error) {
+    console.error(
+      "API KEY USER MAP PARSE FAILED",
+      JSON.stringify({ message: String(error?.message || error) }),
+    );
+  }
+
+  return map;
+}
+
+function resolveUserIdFromApiKey(apiKey) {
+  if (!apiKey) {
+    return null;
+  }
+
+  return getApiKeyUserMap().get(String(apiKey)) || null;
+}
+
+// Helper to resolve the user ID from body, query params, headers, or API key.
 function resolveUserId(event, body = null) {
   const parsedBody = body || tryParseJsonBody(event);
   const queryParams = event?.queryStringParameters || {};
@@ -99,26 +163,23 @@ function resolveUserId(event, body = null) {
 
   const fromBody = parsedBody?.user_id || parsedBody?.userId;
   const fromQuery = queryParams.user_id || queryParams.userId;
-  const fromHeader =
-    headers["x-user-id"] || headers["X-User-Id"] || headers["X-USER-ID"];
+  const fromHeader = getHeaderValue(headers, "x-user-id");
 
   if (fromBody || fromQuery || fromHeader) {
-    const rawUserId = fromBody || fromQuery || fromHeader;
-    return String(rawUserId).trim().toLowerCase() || "lorenzo";
+    return normalizeUserId(fromBody || fromQuery || fromHeader);
   }
 
-  const apiKey =
-    headers["x-api-key"] || headers["X-Api-Key"] || headers["X-API-KEY"];
+  const apiKey = getHeaderValue(headers, "x-api-key");
+  const bearer = getHeaderValue(headers, "authorization");
+  const bearerToken = String(bearer || "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
 
-  if (
-    process.env.API_KEY_ELISA &&
-    apiKey &&
-    String(apiKey) === String(process.env.API_KEY_ELISA)
-  ) {
-    return "elisa";
-  }
-
-  return "lorenzo";
+  return (
+    resolveUserIdFromApiKey(apiKey) ||
+    resolveUserIdFromApiKey(bearerToken) ||
+    getDefaultUserId()
+  );
 }
 
 async function invokeInternalWithingsWebhook(payload) {
@@ -172,7 +233,7 @@ async function processWithingsWebhookAsync(payload) {
       const time = measureDate.toTimeString().slice(0, 5);
 
       await appendBodyRow([
-        "lorenzo",
+        normalizeUserId(process.env.WITHINGS_USER_ID),
         date,
         time,
         "withings",
@@ -230,7 +291,11 @@ async function processWithingsWebhookAsync(payload) {
           source_url: activity.sourceUrl,
         }),
       },
-      { date: activity.activityDate, time: "00:00", userId: "lorenzo" },
+      {
+        date: activity.activityDate,
+        time: "00:00",
+        userId: normalizeUserId(process.env.WITHINGS_USER_ID),
+      },
     );
 
     return {
@@ -251,7 +316,7 @@ function getMonday(dateString) {
   return date.toISOString().slice(0, 10);
 }
 
-async function runWeeklyStatsBackfill(userId = "lorenzo") {
+async function runWeeklyStatsBackfill(userId = getDefaultUserId()) {
   console.log("WEEKLY BACKFILL START", JSON.stringify({ userId }));
 
   const rows = await getAllMeals();
@@ -259,9 +324,7 @@ async function runWeeklyStatsBackfill(userId = "lorenzo") {
   const uniqueDates = new Set();
 
   for (const row of rows) {
-    const rowUserId = String(row[0] || "lorenzo")
-      .trim()
-      .toLowerCase();
+    const rowUserId = normalizeUserId(row[0]);
     const date = String(row[1] || "").trim();
 
     if (rowUserId !== userId) {
@@ -340,7 +403,10 @@ async function runWeeklyStatsBackfill(userId = "lorenzo") {
   };
 }
 
-async function runDailyStatsBackfill(userId = "lorenzo", options = {}) {
+async function runDailyStatsBackfill(
+  userId = getDefaultUserId(),
+  options = {},
+) {
   const { date: requestedDate = null, limit = null } = options;
 
   console.log(
@@ -355,13 +421,13 @@ async function runDailyStatsBackfill(userId = "lorenzo", options = {}) {
     const firstCell = String(row[0] || "").trim();
     const secondCell = String(row[1] || "").trim();
 
-    let rowUserId = "lorenzo";
+    let rowUserId = getDefaultUserId();
     let date = "";
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
       date = firstCell;
     } else {
-      rowUserId = firstCell.toLowerCase() || "lorenzo";
+      rowUserId = normalizeUserId(firstCell);
       date = secondCell;
     }
 
@@ -1117,7 +1183,7 @@ async function httpHandler(event) {
       const time = measureDate.toTimeString().slice(0, 5);
 
       await appendBodyRow([
-        "lorenzo",
+        normalizeUserId(process.env.WITHINGS_USER_ID),
         date,
         time,
         "withings",
@@ -1252,7 +1318,8 @@ async function httpHandler(event) {
     const date = measureDate.toISOString().slice(0, 10);
     const time = measureDate.toTimeString().slice(0, 5);
 
-    const last = await getLastBodyRow("lorenzo");
+    const withingsUserId = normalizeUserId(process.env.WITHINGS_USER_ID);
+    const last = await getLastBodyRow(withingsUserId);
 
     if (last && String(last.sourceDate) === String(latest.sourceDate)) {
       return jsonResponse(200, {
@@ -1269,7 +1336,7 @@ async function httpHandler(event) {
     }
 
     await appendBodyRow([
-      "lorenzo",
+      withingsUserId,
       date,
       time,
       "withings",
@@ -1285,7 +1352,7 @@ async function httpHandler(event) {
     return jsonResponse(200, {
       success: true,
       saved: {
-        user_id: "lorenzo",
+        user_id: withingsUserId,
         date,
         time,
         source: "withings",

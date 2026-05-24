@@ -94,7 +94,7 @@ async function backfillMeals(userMap) {
 
       const hash = hashRow(row);
 
-      await query(
+      const result = await query(
         `
         INSERT INTO meals (
           user_id,
@@ -109,8 +109,17 @@ async function backfillMeals(userMap) {
           source,
           sheet_row_hash
         )
-        VALUES (
+        SELECT
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM meals
+          WHERE user_id = $1
+            AND date = $2
+            AND COALESCE(time::text, '') = COALESCE($3::text, '')
+            AND COALESCE(meal_type, '') = COALESCE($4, '')
+            AND COALESCE(description, '') = COALESCE($5, '')
+            AND calories = $6
         )
         ON CONFLICT DO NOTHING
         `,
@@ -129,7 +138,7 @@ async function backfillMeals(userMap) {
         ],
       );
 
-      inserted += 1;
+      inserted += result.rowCount || 0;
     } catch (error) {
       console.error("MEALS BACKFILL FAILED", error.message);
     }
@@ -161,7 +170,7 @@ async function backfillActivities(userMap) {
 
       const hash = hashRow(row);
 
-      await query(
+      const result = await query(
         `
         INSERT INTO activities (
           user_id,
@@ -180,8 +189,24 @@ async function backfillActivities(userMap) {
           raw_json,
           sheet_row_hash
         )
-        VALUES (
+        SELECT
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM activities
+          WHERE user_id = $1
+            AND activity_date = $2
+            AND COALESCE(source, '') = COALESCE($4, '')
+            AND COALESCE(activity_type, '') = COALESCE($5, '')
+            AND (
+              ($12::text IS NOT NULL AND COALESCE(source_id, '') = COALESCE($12::text, ''))
+              OR
+              ($12::text IS NULL
+                AND COALESCE(time::text, '') = COALESCE($3::text, '')
+                AND COALESCE(description, '') = COALESCE($6, '')
+                AND calories = $7
+              )
+            )
         )
         ON CONFLICT DO NOTHING
         `,
@@ -204,7 +229,7 @@ async function backfillActivities(userMap) {
         ],
       );
 
-      inserted += 1;
+      inserted += result.rowCount || 0;
     } catch (error) {
       console.error("ACTIVITY BACKFILL FAILED", error.message);
     }
@@ -236,7 +261,14 @@ async function backfillBody(userMap) {
 
       const hash = hashRow(row);
 
-      await query(
+      const weight = maybeDecryptBodyNumber(row[4] || null);
+      const bodyFat = maybeDecryptBodyNumber(row[5] || null);
+      const muscleMass = maybeDecryptBodyNumber(row[6] || null);
+      const waterMass = maybeDecryptBodyNumber(row[7] || null);
+      const fatMass = maybeDecryptBodyNumber(row[8] || null);
+      const leanMass = maybeDecryptBodyNumber(row[9] || null);
+
+      const result = await query(
         `
         INSERT INTO body_metrics (
           user_id,
@@ -251,8 +283,17 @@ async function backfillBody(userMap) {
           lean_mass,
           sheet_row_hash
         )
-        VALUES (
+        SELECT
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM body_metrics
+          WHERE user_id = $1
+            AND date = $2
+            AND COALESCE(time::text, '') = COALESCE($3::text, '')
+            AND COALESCE(source, '') = COALESCE($4, '')
+            AND COALESCE(weight, -1) = COALESCE($5, -1)
+            AND COALESCE(body_fat, -1) = COALESCE($6, -1)
         )
         ON CONFLICT DO NOTHING
         `,
@@ -261,23 +302,129 @@ async function backfillBody(userMap) {
           row[1],
           row[2] || null,
           row[3] || null,
-          maybeDecryptBodyNumber(row[4] || null),
-          maybeDecryptBodyNumber(row[5] || null),
-          maybeDecryptBodyNumber(row[6] || null),
-          maybeDecryptBodyNumber(row[7] || null),
-          maybeDecryptBodyNumber(row[8] || null),
-          maybeDecryptBodyNumber(row[9] || null),
+          weight,
+          bodyFat,
+          muscleMass,
+          waterMass,
+          fatMass,
+          leanMass,
           hash,
         ],
       );
 
-      inserted += 1;
+      inserted += result.rowCount || 0;
     } catch (error) {
       console.error("BODY BACKFILL FAILED", error.message);
     }
   }
 
   console.log("BACKFILL BODY DONE", { inserted });
+}
+
+async function backfillDailyStats(userMap) {
+  console.log("BACKFILL DAILY STATS START");
+
+  const rows = await getRowsFromRange("DailyStats!A:M");
+
+  let insertedOrUpdated = 0;
+
+  for (const row of rows.slice(1)) {
+    if (!row[1] || !String(row[1]).trim()) {
+      continue;
+    }
+
+    try {
+      const userSlug = normalizeUserId(row[0]);
+      const userId = userMap[userSlug];
+
+      if (!userId) {
+        console.log("DAILY STATS USER NOT FOUND", userSlug);
+        continue;
+      }
+
+      const date = row[1];
+      const intake = parseNullableNumber(row[2]) || 0;
+      const activity = parseNullableNumber(row[3]) || 0;
+      const net = parseNullableNumber(row[4]) || 0;
+      const target = parseNullableNumber(row[5]) || 0;
+      const tdeeFormula = parseNullableNumber(row[6]);
+      const tdeeAdaptive = parseNullableNumber(row[7]);
+      const tdeeFinal = parseNullableNumber(row[8]);
+      const remaining = parseNullableNumber(row[9]) || 0;
+      const weight = maybeDecryptBodyNumber(row[10] || null);
+      const bodyFat = maybeDecryptBodyNumber(row[11] || null);
+      const notes = row[12] || null;
+
+      await query(
+        `
+        INSERT INTO daily_stats (
+          user_id,
+          date,
+          intake,
+          activity,
+          net,
+          target,
+          remaining,
+          protein,
+          carbs,
+          fat,
+          weight,
+          body_fat,
+          tdee_formula,
+          tdee_adaptive,
+          tdee_final,
+          notes,
+          source,
+          generated_at
+        )
+        VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()
+        )
+        ON CONFLICT (user_id, date)
+        DO UPDATE SET
+          intake = EXCLUDED.intake,
+          activity = EXCLUDED.activity,
+          net = EXCLUDED.net,
+          target = EXCLUDED.target,
+          remaining = EXCLUDED.remaining,
+          weight = EXCLUDED.weight,
+          body_fat = EXCLUDED.body_fat,
+          tdee_formula = EXCLUDED.tdee_formula,
+          tdee_adaptive = EXCLUDED.tdee_adaptive,
+          tdee_final = EXCLUDED.tdee_final,
+          notes = EXCLUDED.notes,
+          source = EXCLUDED.source,
+          generated_at = EXCLUDED.generated_at,
+          updated_at = NOW()
+        `,
+        [
+          userId,
+          date,
+          intake,
+          activity,
+          net,
+          target,
+          remaining,
+          0,
+          0,
+          0,
+          weight,
+          bodyFat,
+          tdeeFormula,
+          tdeeAdaptive,
+          tdeeFinal,
+          notes,
+          "sheets_backfill",
+        ],
+      );
+
+      insertedOrUpdated += 1;
+    } catch (error) {
+      console.error("DAILY STATS BACKFILL FAILED", error.message);
+    }
+  }
+
+  console.log("BACKFILL DAILY STATS DONE", { insertedOrUpdated });
 }
 
 async function run() {
@@ -289,6 +436,7 @@ async function run() {
     await backfillMeals(userMap);
     await backfillActivities(userMap);
     await backfillBody(userMap);
+    await backfillDailyStats(userMap);
 
     console.log("POSTGRES BACKFILL DONE");
 

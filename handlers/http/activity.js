@@ -2,6 +2,18 @@ const { appendActivityRow, getLatestWeight } = require("../../sheets");
 const { insertActivity } = require("../../repositories/activityRepository");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
+
+function normalizeUserId(userId) {
+  return (
+    String(userId || DEFAULT_USER_ID)
+      .trim()
+      .toLowerCase() || DEFAULT_USER_ID
+  );
+}
+
 function estimateCaloriesFromMetrics({
   activityType,
   distanceKm,
@@ -94,14 +106,13 @@ function shouldOverrideKomootCalories({
 
 async function createActivityFromHttp(
   event,
-  { date, time, userId = "lorenzo" },
+  { date, time, userId = DEFAULT_USER_ID },
 ) {
   const body = parseJsonBody(event);
 
-  const normalizedUserId =
-    String(body.user_id || body.userId || userId || "lorenzo")
-      .trim()
-      .toLowerCase() || "lorenzo";
+  const normalizedUserId = normalizeUserId(
+    body.user_id || body.userId || userId,
+  );
 
   const source = String(body.source || "").trim();
   const activityType = String(body.activity_type || "").trim();

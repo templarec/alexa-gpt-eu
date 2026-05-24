@@ -65,7 +65,30 @@ function setCache(entry, value) {
   entry.expiresAt = Date.now() + CACHE_TTL_MS;
 }
 
-const DEFAULT_USER_ID = "lorenzo";
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
+
+function getEncryptedBodyUserIds() {
+  const raw = String(process.env.ENCRYPTED_BODY_USER_IDS || "elisa").trim();
+
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
+function shouldEncryptBodyForUser(userId) {
+  return getEncryptedBodyUserIds().includes(normalizeUserId(userId));
+}
 
 function normalizeUserId(userId) {
   return (
@@ -227,7 +250,7 @@ function encryptBodyRowForStorage(row) {
   const hasUserId = hasUserIdColumn(row);
   const userId = normalizeUserId(hasUserId ? row[0] : DEFAULT_USER_ID);
 
-  if (userId !== "elisa") {
+  if (!shouldEncryptBodyForUser(userId)) {
     return row;
   }
 
@@ -374,7 +397,7 @@ async function appendBodyRow(row) {
       date: cachedBody.date,
       time: cachedBody.time,
       source: cachedBody.source,
-      encrypted: cachedBody.user_id === "elisa",
+      encrypted: shouldEncryptBodyForUser(cachedBody.user_id),
     }),
   );
 }

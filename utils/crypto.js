@@ -79,8 +79,35 @@ function decryptValue(value) {
   return decrypted.toString("utf8");
 }
 
+function normalizeUserId(userId) {
+  return String(userId || process.env.DEFAULT_USER_ID || "lorenzo")
+    .trim()
+    .toLowerCase();
+}
+
+function getEncryptedBodyUserIds() {
+  const raw = String(process.env.ENCRYPTED_BODY_USER_IDS || "elisa").trim();
+
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
+function shouldEncryptBodyForUser(userId) {
+  return getEncryptedBodyUserIds().includes(normalizeUserId(userId));
+}
+
 function maybeEncryptBodyValue(userId, value) {
-  if (userId !== "elisa") {
+  if (!shouldEncryptBodyForUser(userId)) {
     return value;
   }
 
@@ -109,6 +136,7 @@ module.exports = {
   isEncryptedValue,
   encryptValue,
   decryptValue,
+  shouldEncryptBodyForUser,
   maybeEncryptBodyValue,
   maybeDecryptBodyValue,
   maybeDecryptBodyNumber,

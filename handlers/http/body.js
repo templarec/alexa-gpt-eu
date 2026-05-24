@@ -3,14 +3,21 @@ const {
   getLatestBodyMetric,
   insertBodyMetric,
 } = require("../../repositories/bodyRepository");
-const { maybeDecryptBodyNumber } = require("../../utils/crypto");
+const {
+  maybeDecryptBodyNumber,
+  shouldEncryptBodyForUser,
+} = require("../../utils/crypto");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
+
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
 
 function normalizeUserId(userId) {
   return (
-    String(userId || "lorenzo")
+    String(userId || DEFAULT_USER_ID)
       .trim()
-      .toLowerCase() || "lorenzo"
+      .toLowerCase() || DEFAULT_USER_ID
   );
 }
 
@@ -31,7 +38,7 @@ function parseStoredBodyNumber(value) {
 function buildSafeRawBodyPayload(body, userId) {
   const payload = { ...body };
 
-  if (userId !== "elisa") {
+  if (!shouldEncryptBodyForUser(userId)) {
     return payload;
   }
 
@@ -56,7 +63,10 @@ function buildSafeRawBodyPayload(body, userId) {
   return payload;
 }
 
-async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
+async function createBodyFromHttp(
+  event,
+  { date, time, userId = DEFAULT_USER_ID },
+) {
   const body = parseJsonBody(event);
   const normalizedUserId = normalizeUserId(
     body.user_id || body.userId || userId,
@@ -151,12 +161,12 @@ async function createBodyFromHttp(event, { date, time, userId = "lorenzo" }) {
       water_mass: waterMass === "" ? null : waterMass,
       fat_mass: fatMass === "" ? null : fatMass,
       lean_mass: leanMass === "" ? null : leanMass,
-      encrypted_at_rest: normalizedUserId === "elisa",
+      encrypted_at_rest: shouldEncryptBodyForUser(normalizedUserId),
     },
   });
 }
 
-async function getLatestBodyFromHttp({ userId = "lorenzo" }) {
+async function getLatestBodyFromHttp({ userId = DEFAULT_USER_ID }) {
   const normalizedUserId = normalizeUserId(userId);
   const latest = await getLatestBodyMetric(normalizedUserId);
 

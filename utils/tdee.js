@@ -23,7 +23,9 @@ const MAX_WEIGHT_CHANGE_48H_RATIO = 0.0125;
 const MAX_FILTERED_ADAPTIVE_MULTIPLIER = 1.2;
 const MANUAL_REVIEW_ADAPTIVE_MULTIPLIER = 1.25;
 
-const DEFAULT_USER_ID = "lorenzo";
+const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
+  .trim()
+  .toLowerCase();
 
 function normalizeUserId(userId) {
   return (
@@ -31,6 +33,27 @@ function normalizeUserId(userId) {
       .trim()
       .toLowerCase() || DEFAULT_USER_ID
   );
+}
+
+function getSensitiveTdeeLogUserIds() {
+  const raw = String(process.env.SENSITIVE_TDEE_LOG_USER_IDS || "elisa").trim();
+
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase(),
+    )
+    .filter(Boolean);
+}
+
+function shouldRedactTdeeLogsForUser(userId) {
+  return getSensitiveTdeeLogUserIds().includes(normalizeUserId(userId));
 }
 
 async function getUserConfigValue(getConfigValue, key, userId) {
@@ -118,7 +141,7 @@ function bodyMetricToLegacyRow(metric, userId = DEFAULT_USER_ID) {
 
 function redactSensitiveTdeeLogValue(userId, value) {
   if (
-    normalizeUserId(userId) === "elisa" &&
+    shouldRedactTdeeLogsForUser(userId) &&
     value !== null &&
     value !== undefined
   ) {
@@ -855,14 +878,13 @@ async function getDynamicTdee({
       adaptiveTdeeFiltered,
       adaptiveTdeeCapped,
       adaptiveTdeeSuspicious,
-      adaptiveTdeeDetails:
-        normalizedUserId === "elisa"
-          ? {
-              ...adaptiveTdeeResult,
-              firstWeight: "[encrypted]",
-              lastWeight: "[encrypted]",
-            }
-          : adaptiveTdeeResult,
+      adaptiveTdeeDetails: shouldRedactTdeeLogsForUser(normalizedUserId)
+        ? {
+            ...adaptiveTdeeResult,
+            firstWeight: "[encrypted]",
+            lastWeight: "[encrypted]",
+          }
+        : adaptiveTdeeResult,
       finalTdee,
       model: adaptiveTdeeCapped
         ? "blended_filtered_capped"
