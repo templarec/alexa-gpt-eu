@@ -1,0 +1,882 @@
+openapi: 3.1.0
+info:
+  title: Dieta API
+  version: 4.1.0
+
+servers:
+  - url: https://fqyircpk2e.execute-api.eu-west-1.amazonaws.com
+
+paths:
+  /diet/today:
+    get:
+      operationId: getDietToday
+      summary: Restituisce il riepilogo nutrizionale di oggi
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Report giornaliero
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  summary:
+                    type: object
+                    properties:
+                      intake:
+                        type: number
+                      activity:
+                        type: number
+                      net:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                      target:
+                        type: number
+                      remaining:
+                        type: number
+                      deficit:
+                        type: number
+                  meals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                        time:
+                          type: string
+                        meal_type:
+                          type: string
+                        description:
+                          type: string
+                        calories:
+                          type: number
+                        protein:
+                          type: number
+                        carbs:
+                          type: number
+                        fat:
+                          type: number
+                        running_total:
+                          type: number
+
+  /meals:
+    post:
+      operationId: createMeal
+      summary: Aggiunge un pasto al diario Meals
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - meal_type
+                - description
+                - calories
+                - protein
+                - carbs
+                - fat
+              properties:
+                meal_type:
+                  type: string
+                  enum:
+                    - colazione
+                    - pranzo
+                    - cena
+                    - spuntino
+                description:
+                  type: string
+                calories:
+                  type: number
+                protein:
+                  type: number
+                carbs:
+                  type: number
+                fat:
+                  type: number
+      responses:
+        "200":
+          description: Evento salvato correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  saved:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      meal_type:
+                        type: string
+                      description:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+
+  /meals/analyze:
+    post:
+      operationId: analyzeAndCreateMeal
+      summary: Analizza un pasto o attività in linguaggio naturale e lo salva nel diario corretto
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - meal_type
+                - description
+              properties:
+                meal_type:
+                  type: string
+                  enum:
+                    - colazione
+                    - pranzo
+                    - cena
+                    - spuntino
+                    - attivita
+                description:
+                  type: string
+      responses:
+        "200":
+          description: Evento analizzato e salvato correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  saved:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      meal_type:
+                        type: string
+                      description:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                  analysis:
+                    type: object
+                    properties:
+                      meal_type:
+                        type: string
+                      description_normalized:
+                        type: string
+                      missing_quantities:
+                        type: boolean
+                      total:
+                        type: object
+                        properties:
+                          calories:
+                            type: number
+                          protein:
+                            type: number
+                          carbs:
+                            type: number
+                          fat:
+                            type: number
+        "400":
+          description: Quantità mancanti o input troppo vago
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /activity:
+    post:
+      operationId: createActivity
+      summary: Aggiunge un'attività fisica al diario Activity
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - source
+                - activity_type
+              properties:
+                source:
+                  type: string
+                  examples:
+                    - komoot
+                    - withings
+                    - manual
+                activity_type:
+                  type: string
+                  examples:
+                    - walk
+                    - bike
+                    - hike
+                    - steps
+                description:
+                  type: string
+                activity_date:
+                  type: string
+                  description: Data/ora ISO dell'attività reale, se disponibile
+                calories:
+                  type: number
+                  nullable: true
+                total_calories:
+                  type: number
+                  nullable: true
+                distance_km:
+                  type: number
+                  nullable: true
+                duration_min:
+                  type: number
+                  nullable: true
+                steps:
+                  type: number
+                  nullable: true
+                avg_speed_kmh:
+                  type: number
+                  nullable: true
+      responses:
+        "200":
+          description: Attività salvata o ignorata se duplicata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  skipped:
+                    type: boolean
+                  reason:
+                    type: string
+                    nullable: true
+                  source_id:
+                    type: string
+                    nullable: true
+                  saved:
+                    type: object
+                    nullable: true
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      source:
+                        type: string
+                      activity_type:
+                        type: string
+                      description:
+                        type: string
+                      source_id:
+                        type: string
+                        nullable: true
+                      source_url:
+                        type: string
+                        nullable: true
+                      calories:
+                        type: number
+                      total_calories:
+                        type: number
+                        nullable: true
+                      distance_km:
+                        type: number
+                        nullable: true
+                      duration_min:
+                        type: number
+                        nullable: true
+                      steps:
+                        type: number
+                        nullable: true
+                      avg_speed_kmh:
+                        type: number
+                        nullable: true
+        "400":
+          description: Input attività non valido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /body:
+    post:
+      operationId: createBody
+      summary: Salva una misurazione corporea manuale nel diario Body
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - weight
+              properties:
+                weight:
+                  type: number
+                  description: Peso corporeo in kg
+                body_fat:
+                  type: number
+                  nullable: true
+                  description: Percentuale massa grassa, se disponibile
+                muscle_mass:
+                  type: number
+                  nullable: true
+                water_mass:
+                  type: number
+                  nullable: true
+                fat_mass:
+                  type: number
+                  nullable: true
+                lean_mass:
+                  type: number
+                  nullable: true
+                source:
+                  type: string
+                  example: manual
+      responses:
+        "200":
+          description: Misurazione corporea salvata correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  saved:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      source:
+                        type: string
+                      weight:
+                        type: number
+                      body_fat:
+                        type: number
+                        nullable: true
+                      muscle_mass:
+                        type: number
+                        nullable: true
+                      water_mass:
+                        type: number
+                        nullable: true
+                      fat_mass:
+                        type: number
+                        nullable: true
+                      lean_mass:
+                        type: number
+                        nullable: true
+        "400":
+          description: Peso mancante o non valido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  message:
+                    type: string
+
+  /body/latest:
+    get:
+      operationId: getBodyLatest
+      summary: Restituisce l'ultima misurazione corporea disponibile
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Ultima misurazione corporea disponibile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  body:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      source:
+                        type: string
+                      weight:
+                        type: number
+                      bodyFat:
+                        type: number
+                        nullable: true
+                      muscleMass:
+                        type: number
+                        nullable: true
+                      waterMass:
+                        type: number
+                        nullable: true
+                      fatMass:
+                        type: number
+                        nullable: true
+                      leanMass:
+                        type: number
+                        nullable: true
+        "404":
+          description: Nessuna misurazione corporea trovata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+                  message:
+                    type: string
+
+  /kitchen/current:
+    get:
+      operationId: getKitchenCurrent
+      summary: Restituisce lo stato attuale del monitor cucina
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Stato attuale della ricetta inviata alla cucina
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  state:
+                    type: object
+                    properties:
+                      updatedAt:
+                        type: string
+                        nullable: true
+                      recipe:
+                        type: object
+                        nullable: true
+                        properties:
+                          title:
+                            type: string
+                          servings:
+                            type: integer
+                            nullable: true
+                          ingredients:
+                            type: array
+                            items:
+                              type: string
+                          steps:
+                            type: array
+                            items:
+                              type: string
+                          notes:
+                            type: string
+
+  /kitchen/display:
+    post:
+      operationId: sendKitchenDisplay
+      summary: Invia una ricetta o un pasto consigliato al monitor cucina
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - ingredients
+                - steps
+              properties:
+                title:
+                  type: string
+                servings:
+                  type: integer
+                  nullable: true
+                ingredients:
+                  type: array
+                  items:
+                    type: string
+                steps:
+                  type: array
+                  items:
+                    type: string
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Ricetta inviata correttamente al monitor cucina
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+                  state:
+                    type: object
+                    properties:
+                      updatedAt:
+                        type: string
+                      recipe:
+                        type: object
+                        properties:
+                          title:
+                            type: string
+                          servings:
+                            type: integer
+                            nullable: true
+                          ingredients:
+                            type: array
+                            items:
+                              type: string
+                          steps:
+                            type: array
+                            items:
+                              type: string
+                          notes:
+                            type: string
+
+  /silvia/current:
+    get:
+      operationId: getSilviaCurrent
+      summary: Restituisce lo stato attuale della porzione Silvia
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Stato attuale della porzione Silvia
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  updatedAt:
+                    type: string
+                    nullable: true
+                  payload:
+                    type: object
+                    nullable: true
+                    properties:
+                      title:
+                        type: string
+                      servings:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                      ingredients:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - name
+                            - grams
+                            - calories
+                          properties:
+                            name:
+                              type: string
+                            grams:
+                              type: number
+                            calories:
+                              type: number
+
+  /silvia/display:
+    post:
+      operationId: sendSilviaDisplay
+      summary: Aggiorna la pagina Silvia con la sua porzione personalizzata
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - servings
+                - calories
+                - protein
+                - carbs
+                - fat
+                - ingredients
+              properties:
+                title:
+                  type: string
+                servings:
+                  type: string
+                  example: Porzione Silvia
+                calories:
+                  type: number
+                protein:
+                  type: number
+                carbs:
+                  type: number
+                fat:
+                  type: number
+                ingredients:
+                  type: array
+                  description: Ingredienti della sola porzione Silvia. Ogni elemento deve includere nome, grammi e kcal della porzione Silvia.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - grams
+                      - calories
+                    properties:
+                      name:
+                        type: string
+                        description: Nome ingrediente da copiare in MyFitnessPal
+                      grams:
+                        type: number
+                        description: Grammi dell'ingrediente nella porzione Silvia
+                      calories:
+                        type: number
+                        description: Kcal dell'ingrediente nella porzione Silvia
+      responses:
+        "200":
+          description: Porzione Silvia aggiornata correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  updatedAt:
+                    type: string
+                  payload:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      servings:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                      ingredients:
+                        type: array
+                        items:
+                          type: object
+                          required:
+                            - name
+                            - grams
+                            - calories
+                          properties:
+                            name:
+                              type: string
+                            grams:
+                              type: number
+                            calories:
+                              type: number
+
+  /withings/latest:
+    get:
+      operationId: getWithingsLatest
+      summary: Restituisce l'ultima misurazione corporea importata da Withings
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Ultima misurazione corporea
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  skipped:
+                    type: boolean
+                  reason:
+                    type: string
+                  weight:
+                    type: number
+                  body_fat:
+                    type: number
+                  muscle_mass:
+                    type: number
+                  water_mass:
+                    type: number
+                  fat_mass:
+                    type: number
+                  lean_mass:
+                    type: number
+                  saved:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      source:
+                        type: string
+                      weight:
+                        type: number
+                      body_fat:
+                        type: number
+                      muscle_mass:
+                        type: number
+                      water_mass:
+                        type: number
+                      fat_mass:
+                        type: number
+                      lean_mass:
+                        type: number
+  /diet/week-context:
+    get:
+      operationId: getDietWeekContext
+      summary: Restituisce il contesto nutrizionale settimanale (lunedì-domenica) per evitare ridondanza nei pasti e valutare il bilancio settimanale
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Data di riferimento in formato YYYY-MM-DD; se omessa usa la settimana corrente
+          schema:
+            type: string
+            format: date
+      x-openai-isConsequential: false
+      responses:
+        "200":
+          description: Contesto nutrizionale della settimana corrente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  context:
+                    type: object
+                    properties:
+                      week_start:
+                        type: string
+                      week_end:
+                        type: string
+                      summary:
+                        type: object
+                        properties:
+                          intake:
+                            type: number
+                          activity:
+                            type: number
+                          net:
+                            type: number
+                          target:
+                            type: number
+                          remaining:
+                            type: number
+                          protein:
+                            type: number
+                          carbs:
+                            type: number
+                          fat:
+                            type: number
+                          avg_daily_intake:
+                            type: number
+                          avg_daily_net:
+                            type: number
+                      days:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                            intake:
+                              type: number
+                            activity:
+                              type: number
+                            net:
+                              type: number
+                            target:
+                              type: number
+                            remaining:
+                              type: number
+                            protein:
+                              type: number
+                            carbs:
+                              type: number
+                            fat:
+                              type: number
+                            meals_count:
+                              type: number
+                            activities_count:
+                              type: number
+                      recent_meals:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                            meal_type:
+                              type: string
+                            description:
+                              type: string
+                            calories:
+                              type: number
+                      food_frequency:
+                        type: object
+                        additionalProperties:
+                          type: number
+                      variety_warnings:
+                        type: array
+                        items:
+                          type: string
