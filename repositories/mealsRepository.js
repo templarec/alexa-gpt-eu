@@ -1,5 +1,4 @@
 const { query } = require("../db/postgres");
-const { parseSheetNumber } = require("../utils/numbers-and-dates");
 
 async function getUserIdBySlug(slug) {
   const result = await query(
@@ -28,23 +27,23 @@ function formatPostgresDate(value) {
 }
 
 function normalizePostgresCalories(value) {
-  const number = parseSheetNumber(value);
-
-  if (Math.abs(number) > 3000) {
-    return number / 100;
+  if (value === null || value === undefined || value === "") {
+    return 0;
   }
 
-  return number;
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
 }
 
 function normalizePostgresMacro(value) {
-  const number = parseSheetNumber(value);
-
-  if (Math.abs(number) >= 100) {
-    return number / 100;
+  if (value === null || value === undefined || value === "") {
+    return 0;
   }
 
-  return number;
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
 }
 
 async function insertMeal({
