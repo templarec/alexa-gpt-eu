@@ -28,6 +28,10 @@ const {
   createMealFromHttp,
   createAnalyzedMealFromHttp,
   getMealsToday,
+  getMealsFromHttp,
+  getMealFromHttp,
+  updateMealFromHttp,
+  deleteMealFromHttp,
 } = require("./handlers/http/meals");
 const {
   fetchWithingsMeasures,
@@ -1294,13 +1298,25 @@ async function httpHandler(event) {
     return handleGetDietToday({ date, userId });
   }
 
+  if (/\/meals\/[^/]+$/.test(path) && method === "GET") {
+    return getMealFromHttp(event, { userId });
+  }
+
+  if (/\/meals\/[^/]+$/.test(path) && method === "PATCH") {
+    return updateMealFromHttp(event, { userId });
+  }
+
+  if (/\/meals\/[^/]+$/.test(path) && method === "DELETE") {
+    return deleteMealFromHttp(event, { userId });
+  }
+
   if (path.includes("/meals") && method === "POST") {
     const { date, time } = getDateTimeParts(TIMEZONE);
     return createMealFromHttp(event, { date, time, userId });
   }
 
   if (path.includes("/meals") && method === "GET") {
-    return exportMeals({ userId });
+    return getMealsFromHttp(event, { userId });
   }
 
   if (path.includes("/withings/latest") && method === "GET") {

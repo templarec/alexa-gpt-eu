@@ -1,5 +1,11 @@
 const { appendMealRow, getAllMeals, getTodayRows } = require("../../sheets");
-const { insertMeal } = require("../../repositories/mealsRepository");
+const {
+  insertMeal,
+  getMealById,
+  getMeals,
+  updateMeal,
+  deleteMeal,
+} = require("../../repositories/mealsRepository");
 const { analyzeMeal } = require("../../openai");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
@@ -282,9 +288,170 @@ async function getMealsToday({ date, userId = DEFAULT_USER_ID }) {
   return jsonResponse(200, rows);
 }
 
+function getMealIdFromPath(path) {
+  const match = String(path || "").match(/\/meals\/([^/]+)$/);
+  return match ? match[1] : null;
+}
+
+function normalizeOptionalNumber(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null || value === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : NaN;
+}
+
+async function getMealsFromHttp(event, { userId = DEFAULT_USER_ID } = {}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const queryParams = event.queryStringParameters || {};
+
+  const meals = await getMeals({
+    userSlug: normalizedUserId,
+    date: queryParams.date,
+    startDate: queryParams.start_date,
+    endDate: queryParams.end_date,
+    limit: queryParams.limit,
+  });
+
+  return jsonResponse(200, {
+    success: true,
+    meals,
+  });
+}
+
+async function getMealFromHttp(event, { userId = DEFAULT_USER_ID } = {}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const mealId = getMealIdFromPath(event.rawPath || event.path);
+
+  if (!mealId) {
+    return jsonResponse(400, {
+      success: false,
+      error: "meal_id_required",
+    });
+  }
+
+  const meal = await getMealById(normalizedUserId, mealId);
+
+  if (!meal) {
+    return jsonResponse(404, {
+      success: false,
+      error: "meal_not_found",
+    });
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    meal,
+  });
+}
+
+async function updateMealFromHttp(event, { userId = DEFAULT_USER_ID } = {}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const mealId = getMealIdFromPath(event.rawPath || event.path);
+
+  if (!mealId) {
+    return jsonResponse(400, {
+      success: false,
+      error: "meal_id_required",
+    });
+  }
+
+  const body = parseJsonBody(event);
+  const updates = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "date")) {
+    updates.date = String(body.date || "").trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "time")) {
+    updates.time = body.time === null ? null : String(body.time || "").trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "meal_type")) {
+    updates.meal_type = String(body.meal_type || "").trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "description")) {
+    updates.description = String(body.description || "").trim();
+  }
+
+  for (const field of ["calories", "protein", "carbs", "fat"]) {
+    if (!Object.prototype.hasOwnProperty.call(body, field)) {
+      continue;
+    }
+
+    const value = normalizeOptionalNumber(body[field]);
+
+    if (Number.isNaN(value)) {
+      return jsonResponse(400, {
+        success: false,
+        error: `${field}_must_be_number`,
+      });
+    }
+
+    updates[field] = value;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "source")) {
+    updates.source =
+      body.source === null ? null : String(body.source || "").trim();
+  }
+
+  const meal = await updateMeal(normalizedUserId, mealId, updates);
+
+  if (!meal) {
+    return jsonResponse(404, {
+      success: false,
+      error: "meal_not_found",
+    });
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    meal,
+  });
+}
+
+async function deleteMealFromHttp(event, { userId = DEFAULT_USER_ID } = {}) {
+  const normalizedUserId = normalizeUserId(userId);
+  const mealId = getMealIdFromPath(event.rawPath || event.path);
+
+  if (!mealId) {
+    return jsonResponse(400, {
+      success: false,
+      error: "meal_id_required",
+    });
+  }
+
+  const deleted = await deleteMeal(normalizedUserId, mealId);
+
+  if (!deleted) {
+    return jsonResponse(404, {
+      success: false,
+      error: "meal_not_found",
+    });
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    deleted: true,
+    id: mealId,
+  });
+}
+
 module.exports = {
   exportMeals,
   createMealFromHttp,
   createAnalyzedMealFromHttp,
   getMealsToday,
+  getMealsFromHttp,
+  getMealFromHttp,
+  updateMealFromHttp,
+  deleteMealFromHttp,
 };
