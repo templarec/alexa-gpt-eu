@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Dieta API
-  version: 3.1.1
+  version: 4.3.0
 
 servers:
   - url: https://fqyircpk2e.execute-api.eu-west-1.amazonaws.com
@@ -68,6 +68,82 @@ paths:
                           type: number
 
   /meals:
+    get:
+      operationId: listMeals
+      summary: Restituisce i pasti salvati, filtrabili per data o intervallo date
+      x-openai-isConsequential: false
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Data esatta in formato YYYY-MM-DD
+          schema:
+            type: string
+            format: date
+        - name: start_date
+          in: query
+          required: false
+          description: Data iniziale in formato YYYY-MM-DD
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: false
+          description: Data finale in formato YYYY-MM-DD
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          required: false
+          description: Numero massimo di pasti da restituire
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Lista pasti salvati
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  meals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        date:
+                          type: string
+                        time:
+                          type: string
+                        meal_type:
+                          type: string
+                        description:
+                          type: string
+                        calories:
+                          type: number
+                        protein:
+                          type: number
+                        carbs:
+                          type: number
+                        fat:
+                          type: number
+                        source:
+                          type: string
+                          nullable: true
+                        created_at:
+                          type: string
+                          nullable: true
+                        updated_at:
+                          type: string
+                          nullable: true
     post:
       operationId: createMeal
       summary: Aggiunge un pasto al diario Meals
@@ -132,6 +208,218 @@ paths:
                         type: number
                       fat:
                         type: number
+
+  /meals/{id}:
+    get:
+      operationId: getMealById
+      summary: Restituisce un singolo pasto tramite ID
+      x-openai-isConsequential: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID del pasto
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pasto trovato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  meal:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      meal_type:
+                        type: string
+                      description:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                      source:
+                        type: string
+                        nullable: true
+                      created_at:
+                        type: string
+                        nullable: true
+                      updated_at:
+                        type: string
+                        nullable: true
+        "404":
+          description: Pasto non trovato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+
+    patch:
+      operationId: updateMealById
+      summary: Modifica un pasto esistente tramite ID
+      x-openai-isConsequential: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID del pasto da modificare
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                time:
+                  type: string
+                  nullable: true
+                meal_type:
+                  type: string
+                  enum:
+                    - colazione
+                    - pranzo
+                    - cena
+                    - spuntino
+                description:
+                  type: string
+                calories:
+                  type: number
+                  nullable: true
+                protein:
+                  type: number
+                  nullable: true
+                carbs:
+                  type: number
+                  nullable: true
+                fat:
+                  type: number
+                  nullable: true
+                source:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Pasto modificato correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  meal:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      date:
+                        type: string
+                      time:
+                        type: string
+                      meal_type:
+                        type: string
+                      description:
+                        type: string
+                      calories:
+                        type: number
+                      protein:
+                        type: number
+                      carbs:
+                        type: number
+                      fat:
+                        type: number
+                      source:
+                        type: string
+                        nullable: true
+                      created_at:
+                        type: string
+                        nullable: true
+                      updated_at:
+                        type: string
+                        nullable: true
+        "400":
+          description: Input modifica non valido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+        "404":
+          description: Pasto non trovato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
+
+    delete:
+      operationId: deleteMealById
+      summary: Elimina un pasto esistente tramite ID
+      x-openai-isConsequential: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID del pasto da eliminare
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pasto eliminato correttamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: boolean
+                  id:
+                    type: string
+        "404":
+          description: Pasto non trovato
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  error:
+                    type: string
 
   /meals/analyze:
     post:
