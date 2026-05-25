@@ -1,4 +1,4 @@
-const { query } = require("../db/postgres");
+const { query, withTransaction } = require("../db/postgres");
 
 async function getUserIdBySlug(slug) {
   const result = await query(
@@ -58,46 +58,58 @@ async function insertMeal({
   fat,
   source,
 }) {
-  const userId = await getUserIdBySlug(userSlug);
+  return withTransaction(async (client) => {
+    const userResult = await client.query(
+      `
+      SELECT id
+      FROM users
+      WHERE slug = $1
+      LIMIT 1
+      `,
+      [userSlug],
+    );
 
-  if (!userId) {
-    throw new Error(`User not found: ${userSlug}`);
-  }
+    const userId = userResult.rows[0]?.id || null;
 
-  const result = await query(
-    `
-    INSERT INTO meals (
-      user_id,
-      date,
-      time,
-      meal_type,
-      description,
-      calories,
-      protein,
-      carbs,
-      fat,
-      source
-    )
-    VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
-    )
-    RETURNING id
-    `,
-    [
-      userId,
-      date,
-      time || null,
-      mealType,
-      description,
-      Number(calories || 0),
-      Number(protein || 0),
-      Number(carbs || 0),
-      Number(fat || 0),
-      source || null,
-    ],
-  );
+    if (!userId) {
+      throw new Error(`User not found: ${userSlug}`);
+    }
 
-  return result.rows[0];
+    const result = await client.query(
+      `
+      INSERT INTO meals (
+        user_id,
+        date,
+        time,
+        meal_type,
+        description,
+        calories,
+        protein,
+        carbs,
+        fat,
+        source
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+      )
+      RETURNING id
+      `,
+      [
+        userId,
+        date,
+        time || null,
+        mealType,
+        description,
+        Number(calories || 0),
+        Number(protein || 0),
+        Number(carbs || 0),
+        Number(fat || 0),
+        source || null,
+      ],
+    );
+
+    return result.rows[0];
+  });
 }
 
 function mapMealRow(row) {
@@ -205,86 +217,133 @@ async function getMeals({ userSlug, startDate, endDate, date, limit = 100 }) {
 }
 
 async function updateMeal(userSlug, mealId, updates) {
-  const userId = await getUserIdBySlug(userSlug);
+  return withTransaction(async (client) => {
+    const userResult = await client.query(
+      `
+      SELECT id
+      FROM users
+      WHERE slug = $1
+      LIMIT 1
+      `,
+      [userSlug],
+    );
 
-  if (!userId) {
-    throw new Error(`User not found: ${userSlug}`);
-  }
+    const userId = userResult.rows[0]?.id || null;
 
-  const allowedFields = {
-    date: "date",
-    time: "time",
-    meal_type: "meal_type",
-    description: "description",
-    calories: "calories",
-    protein: "protein",
-    carbs: "carbs",
-    fat: "fat",
-    source: "source",
-  };
-
-  const setClauses = [];
-  const params = [userId, mealId];
-
-  for (const [key, column] of Object.entries(allowedFields)) {
-    if (!Object.prototype.hasOwnProperty.call(updates, key)) {
-      continue;
+    if (!userId) {
+      throw new Error(`User not found: ${userSlug}`);
     }
 
-    params.push(updates[key]);
-    setClauses.push(`${column} = $${params.length}`);
-  }
+    const allowedFields = {
+      date: "date",
+      time: "time",
+      meal_type: "meal_type",
+      description: "description",
+      calories: "calories",
+      protein: "protein",
+      carbs: "carbs",
+      fat: "fat",
+      source: "source",
+    };
 
-  if (setClauses.length === 0) {
-    return getMealById(userSlug, mealId);
-  }
+    const setClauses = [];
+    const params = [userId, mealId];
 
-  const result = await query(
-    `
-    UPDATE meals
-    SET
-      ${setClauses.join(",\n      ")},
-      updated_at = NOW()
-    WHERE user_id = $1
-      AND id = $2
-    RETURNING
-      id,
-      date,
-      time,
-      meal_type,
-      description,
-      calories,
-      protein,
-      carbs,
-      fat,
-      source,
-      created_at,
-      updated_at
-    `,
-    params,
-  );
+    for (const [key, column] of Object.entries(allowedFields)) {
+      if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+        continue;
+      }
 
-  return result.rows[0] ? mapMealRow(result.rows[0]) : null;
+      params.push(updates[key]);
+      setClauses.push(`${column} = $${params.length}`);
+    }
+
+    if (setClauses.length === 0) {
+      const existing = await client.query(
+        `
+        SELECT
+          id,
+          date,
+          time,
+          meal_type,
+          description,
+          calories,
+          protein,
+          carbs,
+          fat,
+          source,
+          created_at,
+          updated_at
+        FROM meals
+        WHERE user_id = $1
+          AND id = $2
+        LIMIT 1
+        `,
+        [userId, mealId],
+      );
+
+      return existing.rows[0] ? mapMealRow(existing.rows[0]) : null;
+    }
+
+    const result = await client.query(
+      `
+      UPDATE meals
+      SET
+        ${setClauses.join(",\n        ")},
+        updated_at = NOW()
+      WHERE user_id = $1
+        AND id = $2
+      RETURNING
+        id,
+        date,
+        time,
+        meal_type,
+        description,
+        calories,
+        protein,
+        carbs,
+        fat,
+        source,
+        created_at,
+        updated_at
+      `,
+      params,
+    );
+
+    return result.rows[0] ? mapMealRow(result.rows[0]) : null;
+  });
 }
 
 async function deleteMeal(userSlug, mealId) {
-  const userId = await getUserIdBySlug(userSlug);
+  return withTransaction(async (client) => {
+    const userResult = await client.query(
+      `
+      SELECT id
+      FROM users
+      WHERE slug = $1
+      LIMIT 1
+      `,
+      [userSlug],
+    );
 
-  if (!userId) {
-    throw new Error(`User not found: ${userSlug}`);
-  }
+    const userId = userResult.rows[0]?.id || null;
 
-  const result = await query(
-    `
-    DELETE FROM meals
-    WHERE user_id = $1
-      AND id = $2
-    RETURNING id
-    `,
-    [userId, mealId],
-  );
+    if (!userId) {
+      throw new Error(`User not found: ${userSlug}`);
+    }
 
-  return result.rowCount > 0;
+    const result = await client.query(
+      `
+      DELETE FROM meals
+      WHERE user_id = $1
+        AND id = $2
+      RETURNING id
+      `,
+      [userId, mealId],
+    );
+
+    return result.rowCount > 0;
+  });
 }
 
 async function getMealsByDate(userSlug, date) {

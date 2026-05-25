@@ -56,7 +56,47 @@ async function query(text, params = []) {
   }
 }
 
+async function withTransaction(callback) {
+  const client = await globalPool.connect();
+  const start = Date.now();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await callback(client);
+
+    await client.query("COMMIT");
+
+    console.log("POSTGRES TRANSACTION COMMITTED", {
+      durationMs: Date.now() - start,
+    });
+
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("POSTGRES TRANSACTION ROLLBACK FAILED", {
+        message: rollbackError.message,
+        code: rollbackError.code,
+        detail: rollbackError.detail,
+      });
+    }
+
+    console.error("POSTGRES TRANSACTION FAILED", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+    });
+
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   pool: globalPool,
   query,
+  withTransaction,
 };
