@@ -1,4 +1,4 @@
-const { appendMealRow, getAllMeals, getTodayRows } = require("../../sheets");
+const { appendMealRow } = require("../../sheets");
 const {
   insertMeal,
   getMealById,
@@ -21,51 +21,24 @@ function normalizeUserId(userId) {
   );
 }
 
-function isIsoDateLike(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
-}
-
-function hasUserIdColumn(row) {
-  return !isIsoDateLike(row?.[0]) && isIsoDateLike(row?.[1]);
-}
-
-function getMealCalories(row) {
-  const offset = hasUserIdColumn(row) ? 1 : 0;
-  return Number(row[offset + 4] || 0);
-}
-
-function calculateRunningTotalFromRows(rows) {
-  return rows.reduce((sum, row) => sum + getMealCalories(row), 0);
-}
-
-async function getTodayMealRows(date, userId) {
-  return await getTodayRows(date, userId);
+function calculateRunningTotalFromMeals(meals) {
+  return meals.reduce((sum, meal) => {
+    const calories = Number(meal.calories || 0);
+    return sum + calories;
+  }, 0);
 }
 
 async function exportMeals({ userId } = {}) {
-  const rows = await getAllMeals();
-
-  if (!userId) {
-    return jsonResponse(200, rows);
-  }
-
   const normalizedUserId = normalizeUserId(userId);
 
-  const filteredRows = rows.filter((row, index) => {
-    if (index === 0) return true;
-
-    if (!hasUserIdColumn(row)) {
-      return normalizedUserId === DEFAULT_USER_ID;
-    }
-
-    return (
-      String(row[0] || "")
-        .trim()
-        .toLowerCase() === normalizedUserId
-    );
+  const meals = await getMeals({
+    userSlug: normalizedUserId,
   });
 
-  return jsonResponse(200, filteredRows);
+  return jsonResponse(200, {
+    success: true,
+    meals,
+  });
 }
 
 async function createMealFromHttp(
@@ -94,8 +67,11 @@ async function createMealFromHttp(
   }
 
   const normalizedUserId = normalizeUserId(userId);
-  const todayRows = await getTodayMealRows(date, normalizedUserId);
-  const previousTotal = calculateRunningTotalFromRows(todayRows);
+  const todayMeals = await getMeals({
+    userSlug: normalizedUserId,
+    date,
+  });
+  const previousTotal = calculateRunningTotalFromMeals(todayMeals);
   const newTotal = previousTotal + calories;
 
   const row = [
@@ -201,8 +177,11 @@ async function createAnalyzedMealFromHttp(
     }
 
     const normalizedUserId = normalizeUserId(userId);
-    const todayRows = await getTodayMealRows(date, normalizedUserId);
-    const previousTotal = calculateRunningTotalFromRows(todayRows);
+    const todayMeals = await getMeals({
+      userSlug: normalizedUserId,
+      date,
+    });
+    const previousTotal = calculateRunningTotalFromMeals(todayMeals);
     const calories = Number(analysis.total.calories || 0);
     const protein = Number(analysis.total.protein || 0);
     const carbs = Number(analysis.total.carbs || 0);

@@ -3,12 +3,8 @@ const path = require("path");
 const Alexa = require("ask-sdk-core");
 const { askChat, analyzeMeal } = require("./openai");
 const {
-  appendMealRow,
-  appendBodyRow,
-  getLastBodyRow,
   getTodayDietReport,
   getWeekDietContext,
-  getAllMeals,
   upsertWeeklyStatsRow,
   saveSilviaMealState,
   getSilviaMealState,
@@ -33,6 +29,7 @@ const {
   updateMealFromHttp,
   deleteMealFromHttp,
 } = require("./handlers/http/meals");
+const { getMeals } = require("./repositories/mealsRepository");
 const {
   fetchWithingsMeasures,
   parseLatestWithingsMetrics,
@@ -105,6 +102,18 @@ function normalizeUserId(value) {
   return String(value || getDefaultUserId())
     .trim()
     .toLowerCase();
+}
+
+function normalizeDateString(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).trim().slice(0, 10);
 }
 
 function getHeaderValue(headers, name) {
@@ -236,19 +245,25 @@ async function processWithingsWebhookAsync(payload) {
       const date = measureDate.toISOString().slice(0, 10);
       const time = measureDate.toTimeString().slice(0, 5);
 
-      await appendBodyRow([
-        normalizeUserId(process.env.WITHINGS_USER_ID),
-        date,
-        time,
-        "withings",
-        m.weight,
-        m.bodyFat ?? "",
-        m.muscleMass ?? "",
-        m.waterMass ?? "",
-        m.fatMass ?? "",
-        m.leanMass ?? "",
-        JSON.stringify(m.rawGroup),
-      ]);
+      await createBodyFromHttp(
+        {
+          body: JSON.stringify({
+            source: "withings",
+            weight: m.weight,
+            body_fat: m.bodyFat ?? null,
+            muscle_mass: m.muscleMass ?? null,
+            water_mass: m.waterMass ?? null,
+            fat_mass: m.fatMass ?? null,
+            lean_mass: m.leanMass ?? null,
+            raw_json: m.rawGroup,
+          }),
+        },
+        {
+          date,
+          time,
+          userId: normalizeUserId(process.env.WITHINGS_USER_ID),
+        },
+      );
 
       inserted++;
     }
@@ -323,17 +338,15 @@ function getMonday(dateString) {
 async function runWeeklyStatsBackfill(userId = getDefaultUserId()) {
   console.log("WEEKLY BACKFILL START", JSON.stringify({ userId }));
 
-  const rows = await getAllMeals();
+  const meals = await getMeals({
+    userSlug: userId,
+    limit: 100000,
+  });
 
   const uniqueDates = new Set();
 
-  for (const row of rows) {
-    const rowUserId = normalizeUserId(row[0]);
-    const date = String(row[1] || "").trim();
-
-    if (rowUserId !== userId) {
-      continue;
-    }
+  for (const meal of meals) {
+    const date = normalizeDateString(meal.date);
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       uniqueDates.add(date);
@@ -418,26 +431,15 @@ async function runDailyStatsBackfill(
     JSON.stringify({ userId, requestedDate, limit }),
   );
 
-  const rows = await getAllMeals();
+  const meals = await getMeals({
+    userSlug: userId,
+    limit: 100000,
+  });
+
   const uniqueDates = new Set();
 
-  for (const row of rows) {
-    const firstCell = String(row[0] || "").trim();
-    const secondCell = String(row[1] || "").trim();
-
-    let rowUserId = getDefaultUserId();
-    let date = "";
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
-      date = firstCell;
-    } else {
-      rowUserId = normalizeUserId(firstCell);
-      date = secondCell;
-    }
-
-    if (rowUserId !== userId) {
-      continue;
-    }
+  for (const meal of meals) {
+    const date = normalizeDateString(meal.date);
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       uniqueDates.add(date);
@@ -725,16 +727,20 @@ function buildMealHandler(intentName, mealType) {
             .getResponse();
         }
 
-        await appendMealRow([
-          date,
-          time,
-          analysis.meal_type || mealType,
-          analysis.description_normalized || mealText,
-          Number(analysis.total.calories || 0),
-          Number(analysis.total.protein || 0),
-          Number(analysis.total.carbs || 0),
-          Number(analysis.total.fat || 0),
-        ]);
+        await createMealFromHttp(
+          {
+            body: JSON.stringify({
+              meal_type: analysis.meal_type || mealType,
+              description: analysis.description_normalized || mealText,
+              calories: Number(analysis.total.calories || 0),
+              protein: Number(analysis.total.protein || 0),
+              carbs: Number(analysis.total.carbs || 0),
+              fat: Number(analysis.total.fat || 0),
+              source: "alexa",
+            }),
+          },
+          { date, time, userId: getDefaultUserId() },
+        );
 
         const mealReport = await getTodayDietReport(date);
         const remaining = Number(mealReport?.summary?.remaining ?? 0);
@@ -1186,19 +1192,25 @@ async function httpHandler(event) {
       const date = measureDate.toISOString().slice(0, 10);
       const time = measureDate.toTimeString().slice(0, 5);
 
-      await appendBodyRow([
-        normalizeUserId(process.env.WITHINGS_USER_ID),
-        date,
-        time,
-        "withings",
-        m.weight,
-        m.bodyFat ?? "",
-        m.muscleMass ?? "",
-        m.waterMass ?? "",
-        m.fatMass ?? "",
-        m.leanMass ?? "",
-        JSON.stringify(m.rawGroup),
-      ]);
+      await createBodyFromHttp(
+        {
+          body: JSON.stringify({
+            source: "withings",
+            weight: m.weight,
+            body_fat: m.bodyFat ?? null,
+            muscle_mass: m.muscleMass ?? null,
+            water_mass: m.waterMass ?? null,
+            fat_mass: m.fatMass ?? null,
+            lean_mass: m.leanMass ?? null,
+            raw_json: m.rawGroup,
+          }),
+        },
+        {
+          date,
+          time,
+          userId: normalizeUserId(process.env.WITHINGS_USER_ID),
+        },
+      );
 
       inserted++;
     }
@@ -1335,35 +1347,26 @@ async function httpHandler(event) {
     const time = measureDate.toTimeString().slice(0, 5);
 
     const withingsUserId = normalizeUserId(process.env.WITHINGS_USER_ID);
-    const last = await getLastBodyRow(withingsUserId);
 
-    if (last && String(last.sourceDate) === String(latest.sourceDate)) {
-      return jsonResponse(200, {
-        success: true,
-        skipped: true,
-        reason: "duplicate_measure",
-        weight: latest.weight,
-        body_fat: latest.bodyFat,
-        muscle_mass: latest.muscleMass,
-        water_mass: latest.waterMass,
-        fat_mass: latest.fatMass,
-        lean_mass: latest.leanMass,
-      });
-    }
-
-    await appendBodyRow([
-      withingsUserId,
-      date,
-      time,
-      "withings",
-      latest.weight,
-      latest.bodyFat ?? "",
-      latest.muscleMass ?? "",
-      latest.waterMass ?? "",
-      latest.fatMass ?? "",
-      latest.leanMass ?? "",
-      JSON.stringify(latest.rawGroup),
-    ]);
+    await createBodyFromHttp(
+      {
+        body: JSON.stringify({
+          source: "withings",
+          weight: latest.weight,
+          body_fat: latest.bodyFat ?? null,
+          muscle_mass: latest.muscleMass ?? null,
+          water_mass: latest.waterMass ?? null,
+          fat_mass: latest.fatMass ?? null,
+          lean_mass: latest.leanMass ?? null,
+          raw_json: latest.rawGroup,
+        }),
+      },
+      {
+        date,
+        time,
+        userId: withingsUserId,
+      },
+    );
 
     return jsonResponse(200, {
       success: true,
