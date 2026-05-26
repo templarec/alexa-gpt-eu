@@ -2,11 +2,11 @@ const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
   .trim()
   .toLowerCase();
 
+const { getMeals } = require("./repositories/mealsRepository");
+const { getWeekDietContext } = require("./services/weekContext");
 const {
-  getAllMeals,
-  getWeekDietContext,
-  upsertWeeklyStatsRow,
-} = require("./sheets");
+  upsertWeeklyStatsSnapshot,
+} = require("./repositories/weeklyStatsRepository");
 
 const BACKFILL_USER_ID = String(process.env.BACKFILL_USER_ID || DEFAULT_USER_ID)
   .trim()
@@ -21,29 +21,16 @@ function getMonday(dateString) {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizeUserId(value) {
-  return (
-    String(value || DEFAULT_USER_ID)
-      .trim()
-      .toLowerCase() || DEFAULT_USER_ID
-  );
-}
-
-function getMealUserIdAndDate(row) {
-  const firstCell = String(row[0] || "").trim();
-  const secondCell = String(row[1] || "").trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
-    return {
-      userId: DEFAULT_USER_ID,
-      date: firstCell,
-    };
+function normalizeDateString(value) {
+  if (!value) {
+    return "";
   }
 
-  return {
-    userId: normalizeUserId(firstCell),
-    date: secondCell,
-  };
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).trim().slice(0, 10);
 }
 
 async function main() {
@@ -52,15 +39,15 @@ async function main() {
     JSON.stringify({ userId: BACKFILL_USER_ID }),
   );
 
-  const rows = await getAllMeals();
+  const meals = await getMeals({
+    userSlug: BACKFILL_USER_ID,
+    limit: 100000,
+  });
+
   const uniqueDates = new Set();
 
-  for (const row of rows) {
-    const { userId, date } = getMealUserIdAndDate(row);
-
-    if (userId !== BACKFILL_USER_ID) {
-      continue;
-    }
+  for (const meal of meals) {
+    const date = normalizeDateString(meal.date);
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       uniqueDates.add(date);
@@ -94,10 +81,10 @@ async function main() {
       userId: BACKFILL_USER_ID,
     });
 
-    await upsertWeeklyStatsRow({
-      user_id: BACKFILL_USER_ID,
-      week_start: context.week_start,
-      week_end: context.week_end,
+    await upsertWeeklyStatsSnapshot({
+      userSlug: BACKFILL_USER_ID,
+      weekStart: context.week_start,
+      weekEnd: context.week_end,
       intake: context.summary.intake,
       activity: context.summary.activity,
       net: context.summary.net,
@@ -106,10 +93,10 @@ async function main() {
       protein: context.summary.protein,
       carbs: context.summary.carbs,
       fat: context.summary.fat,
-      recent_meals_json: JSON.stringify(context.recent_meals || []),
-      food_frequency_json: JSON.stringify(context.food_frequency || {}),
-      variety_warnings_json: JSON.stringify(context.variety_warnings || []),
-      generated_at: new Date().toISOString(),
+      recentMealsJson: context.recent_meals || [],
+      foodFrequencyJson: context.food_frequency || {},
+      varietyWarningsJson: context.variety_warnings || [],
+      generatedAt: new Date().toISOString(),
       source: "backfill",
     });
   }

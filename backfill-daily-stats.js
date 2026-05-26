@@ -1,5 +1,6 @@
 require("dotenv").config();
-const { getAllMeals, getTodayDietReport } = require("./sheets");
+const { getMeals } = require("./repositories/mealsRepository");
+const { getTodayDietReport } = require("./services/dietReport");
 
 const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
   .trim()
@@ -33,21 +34,16 @@ function normalizeUserId(value) {
   );
 }
 
-function getMealUserIdAndDate(row) {
-  const firstCell = String(row[0] || "").trim();
-  const secondCell = String(row[1] || "").trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(firstCell)) {
-    return {
-      userId: DEFAULT_USER_ID,
-      date: firstCell,
-    };
+function normalizeDateString(value) {
+  if (!value) {
+    return "";
   }
 
-  return {
-    userId: normalizeUserId(firstCell),
-    date: secondCell,
-  };
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).trim().slice(0, 10);
 }
 
 async function processDateWithRetry(date, userId) {
@@ -89,21 +85,20 @@ async function processDateWithRetry(date, userId) {
 }
 
 async function backfillDailyStats() {
-  const rows = await getAllMeals();
+  const meals = await getMeals({
+    userSlug: BACKFILL_USER_ID,
+    limit: 100000,
+  });
 
-  if (!rows || rows.length <= 1) {
+  if (!meals || meals.length === 0) {
     console.log("No meals found");
     return;
   }
 
   const dates = new Set();
 
-  for (const row of rows.slice(1)) {
-    const { userId, date } = getMealUserIdAndDate(row);
-
-    if (userId !== BACKFILL_USER_ID) {
-      continue;
-    }
+  for (const meal of meals) {
+    const date = normalizeDateString(meal.date);
 
     if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       dates.add(date);
