@@ -5,22 +5,44 @@ const WALKING_KCAL_PER_KM = 71;
 const RESIDUAL_STEPS_KCAL_PER_KM = 55;
 const DEFAULT_BIKE_CADENCE_RPM = 60;
 
+function normalizeActivityInput(row) {
+  if (Array.isArray(row)) {
+    return {
+      date: row[0] || "",
+      time: row[1] || "",
+      source: String(row[2] || "")
+        .trim()
+        .toLowerCase(),
+      activityType: String(row[3] || "")
+        .trim()
+        .toLowerCase(),
+      description: row[4] || "",
+      rawCalories: parseSheetNumber(row[5]),
+      distanceKm: parseSheetNumber(row[6]),
+      durationMin: parseSheetNumber(row[7]),
+      steps: parseSheetNumber(row[8]),
+    };
+  }
+
+  return {
+    date: row.activity_date || row.date || "",
+    time: row.time || "",
+    source: String(row.source || "")
+      .trim()
+      .toLowerCase(),
+    activityType: String(row.activity_type || row.activityType || "")
+      .trim()
+      .toLowerCase(),
+    description: row.description || "",
+    rawCalories: Number(row.calories || 0),
+    distanceKm: Number(row.distance_km || row.distanceKm || 0),
+    durationMin: Number(row.duration_min || row.durationMin || 0),
+    steps: Number(row.steps || 0),
+  };
+}
+
 function buildNormalizedActivityEntries(activityRows) {
-  const normalizedActivities = activityRows.map((row) => ({
-    date: row[0] || "",
-    time: row[1] || "",
-    source: String(row[2] || "")
-      .trim()
-      .toLowerCase(),
-    activityType: String(row[3] || "")
-      .trim()
-      .toLowerCase(),
-    description: row[4] || "",
-    rawCalories: parseSheetNumber(row[5]),
-    distanceKm: parseSheetNumber(row[6]),
-    durationMin: parseSheetNumber(row[7]),
-    steps: parseSheetNumber(row[8]),
-  }));
+  const normalizedActivities = activityRows.map(normalizeActivityInput);
 
   const withingsStepsEntry = normalizedActivities.find(
     (entry) => entry.source === "withings" && entry.activityType === "steps",
@@ -117,5 +139,6 @@ module.exports = {
   WALKING_KCAL_PER_KM,
   RESIDUAL_STEPS_KCAL_PER_KM,
   DEFAULT_BIKE_CADENCE_RPM,
+  normalizeActivityInput,
   buildNormalizedActivityEntries,
 };

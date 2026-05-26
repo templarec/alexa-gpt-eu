@@ -1,4 +1,3 @@
-const { appendBodyRow } = require("../../sheets");
 const {
   getLatestBodyMetric,
   insertBodyMetric,
@@ -93,20 +92,6 @@ async function createBodyFromHttp(
 
   const safeRawBodyPayload = buildSafeRawBodyPayload(body, normalizedUserId);
 
-  const row = [
-    normalizedUserId,
-    bodyDate,
-    bodyTime,
-    source,
-    weight,
-    bodyFat,
-    muscleMass,
-    waterMass,
-    fatMass,
-    leanMass,
-    JSON.stringify(safeRawBodyPayload),
-  ];
-
   try {
     await insertBodyMetric({
       userSlug: normalizedUserId,
@@ -134,17 +119,6 @@ async function createBodyFromHttp(
     return jsonResponse(500, {
       success: false,
       error: "postgres_body_write_failed",
-    });
-  }
-
-  try {
-    await appendBodyRow(row);
-  } catch (error) {
-    console.error("SHEETS BODY SHADOW WRITE FAILED", {
-      message: error.message,
-      userId: normalizedUserId,
-      date: bodyDate,
-      source,
     });
   }
 

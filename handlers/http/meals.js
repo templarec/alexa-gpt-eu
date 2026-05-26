@@ -1,4 +1,3 @@
-const { appendMealRow } = require("../../sheets");
 const {
   insertMeal,
   getMealById,
@@ -74,18 +73,6 @@ async function createMealFromHttp(
   const previousTotal = calculateRunningTotalFromMeals(todayMeals);
   const newTotal = previousTotal + calories;
 
-  const row = [
-    normalizedUserId,
-    date,
-    time,
-    mealType,
-    description,
-    calories,
-    protein,
-    carbs,
-    fat,
-  ];
-
   let insertedMeal = null;
 
   try {
@@ -114,17 +101,6 @@ async function createMealFromHttp(
     return jsonResponse(500, {
       success: false,
       error: "postgres_meal_write_failed",
-    });
-  }
-
-  try {
-    await appendMealRow(row);
-  } catch (error) {
-    console.error("SHEETS MEAL SHADOW WRITE FAILED", {
-      message: error.message,
-      userId: normalizedUserId,
-      date,
-      mealType,
     });
   }
 
@@ -188,18 +164,6 @@ async function createAnalyzedMealFromHttp(
     const fat = Number(analysis.total.fat || 0);
     const newTotal = previousTotal + calories;
 
-    const row = [
-      normalizedUserId,
-      date,
-      time,
-      analysis.meal_type || mealType,
-      analysis.description_normalized || description,
-      calories,
-      protein,
-      carbs,
-      fat,
-    ];
-
     let insertedMeal = null;
 
     try {
@@ -228,17 +192,6 @@ async function createAnalyzedMealFromHttp(
       return jsonResponse(500, {
         success: false,
         error: "postgres_meal_write_failed",
-      });
-    }
-
-    try {
-      await appendMealRow(row);
-    } catch (error) {
-      console.error("SHEETS MEAL SHADOW WRITE FAILED", {
-        message: error.message,
-        userId: normalizedUserId,
-        date,
-        mealType: analysis.meal_type || mealType,
       });
     }
 

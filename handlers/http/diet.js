@@ -1,4 +1,4 @@
-const { getTodayDietReport } = require("../../sheets");
+const { getTodayDietReport } = require("../../services/dietReport");
 const { jsonResponse } = require("../../utils/http");
 
 const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")

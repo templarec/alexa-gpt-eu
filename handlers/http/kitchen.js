@@ -1,4 +1,4 @@
-const { saveKitchenState, getKitchenState } = require("../../sheets");
+const { query } = require("../../db/postgres");
 
 function jsonResponse(statusCode, body) {
   return {
@@ -20,6 +20,61 @@ function parseBody(event) {
   } catch {
     return null;
   }
+}
+
+function buildDefaultKitchenPayload() {
+  return {
+    title: "Nessuna ricetta inviata",
+    servings: null,
+    ingredients: [],
+    steps: [],
+    notes: "",
+  };
+}
+
+function mapKitchenStateRow(row) {
+  if (!row) {
+    return {
+      updatedAt: null,
+      payload: buildDefaultKitchenPayload(),
+    };
+  }
+
+  return {
+    updatedAt: row.updated_at || null,
+    payload: row.payload || buildDefaultKitchenPayload(),
+  };
+}
+
+async function saveKitchenState(payload) {
+  const result = await query(
+    `
+    INSERT INTO app_state (state_key, payload, updated_at)
+    VALUES ($1, $2::jsonb, NOW())
+    ON CONFLICT (state_key)
+    DO UPDATE SET
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+    RETURNING payload, updated_at
+    `,
+    ["kitchen", JSON.stringify(payload)],
+  );
+
+  return mapKitchenStateRow(result.rows[0]);
+}
+
+async function getKitchenState() {
+  const result = await query(
+    `
+    SELECT payload, updated_at
+    FROM app_state
+    WHERE state_key = $1
+    LIMIT 1
+    `,
+    ["kitchen"],
+  );
+
+  return mapKitchenStateRow(result.rows[0]);
 }
 
 function validateKitchenPayload(payload) {

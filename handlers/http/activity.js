@@ -1,4 +1,6 @@
-const { appendActivityRow, getLatestWeight } = require("../../sheets");
+const {
+  getLatestWeightFromPostgres,
+} = require("../../repositories/bodyRepository");
 const { insertActivity } = require("../../repositories/activityRepository");
 const { parseJsonBody, jsonResponse } = require("../../utils/http");
 
@@ -177,7 +179,7 @@ async function createActivityFromHttp(
     });
   }
 
-  let weightKg = await getLatestWeight(normalizedUserId);
+  let weightKg = await getLatestWeightFromPostgres(normalizedUserId);
 
   if (!weightKg) {
     weightKg = Number(process.env.USER_WEIGHT_KG || 95);
@@ -233,23 +235,6 @@ async function createActivityFromHttp(
     computedCalories = estimation.calories;
   }
 
-  const row = [
-    normalizedUserId,
-    activityDate,
-    activityTime,
-    source,
-    activityType,
-    description,
-    computedCalories ?? "",
-    distanceKm ?? "",
-    effectiveDurationMin ?? "",
-    steps ?? "",
-    avgSpeedKmh ?? "",
-    sourceId ?? "",
-    sourceUrl ?? "",
-    JSON.stringify(body),
-  ];
-
   try {
     await insertActivity({
       userSlug: normalizedUserId,
@@ -279,68 +264,22 @@ async function createActivityFromHttp(
     });
   }
 
-  let result = null;
-
-  try {
-    result = await appendActivityRow(row);
-  } catch (error) {
-    console.error("SHEETS ACTIVITY SHADOW WRITE FAILED", {
-      message: error.message,
-      sourceId,
+  console.log(
+    "ACTIVITY SAVED",
+    JSON.stringify({
       userId: normalizedUserId,
-    });
-  }
-
-  if (result && result.updated) {
-    console.log(
-      "ACTIVITY UPDATED",
-      JSON.stringify({
-        userId: normalizedUserId,
-        date: activityDate,
-        time: activityTime,
-        source,
-        activityType,
-        sourceId,
-        computedCalories,
-        distanceKm,
-        effectiveDurationMin,
-        steps,
-        avgSpeedKmh,
-      }),
-    );
-  } else if (result && result.skipped) {
-    console.log(
-      "ACTIVITY SKIPPED",
-      JSON.stringify({
-        reason: result.reason || "skipped",
-        sourceId,
-      }),
-    );
-
-    return jsonResponse(200, {
-      success: true,
-      skipped: true,
-      reason: result.reason,
-      source_id: result.sourceId || null,
-    });
-  } else {
-    console.log(
-      "ACTIVITY SAVED",
-      JSON.stringify({
-        userId: normalizedUserId,
-        date: activityDate,
-        time: activityTime,
-        source,
-        activityType,
-        sourceId,
-        computedCalories,
-        distanceKm,
-        effectiveDurationMin,
-        steps,
-        avgSpeedKmh,
-      }),
-    );
-  }
+      date: activityDate,
+      time: activityTime,
+      source,
+      activityType,
+      sourceId,
+      computedCalories,
+      distanceKm,
+      effectiveDurationMin,
+      steps,
+      avgSpeedKmh,
+    }),
+  );
 
   return jsonResponse(200, {
     success: true,

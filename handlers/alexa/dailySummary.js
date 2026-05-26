@@ -1,8 +1,8 @@
 const Alexa = require("ask-sdk-core");
 const { TIMEZONE, LORENZO_TDEE } = require("../../config");
-const { getTodayDietReport } = require("../../sheets");
+const { getTodayDietReport } = require("../../services/dietReport");
 
-function getDateTimeParts(timeZone) {
+function getDateTimeParts(timeZone = TIMEZONE) {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone,

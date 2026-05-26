@@ -2,13 +2,12 @@ const fs = require("fs");
 const path = require("path");
 const Alexa = require("ask-sdk-core");
 const { askChat, analyzeMeal } = require("./openai");
+const { query } = require("./db/postgres");
+const { getTodayDietReport } = require("./services/dietReport");
+const { getWeekDietContext } = require("./services/weekContext");
 const {
-  getTodayDietReport,
-  getWeekDietContext,
-  upsertWeeklyStatsRow,
-  saveSilviaMealState,
-  getSilviaMealState,
-} = require("./sheets");
+  upsertWeeklyStatsSnapshot,
+} = require("./repositories/weeklyStatsRepository");
 const { getDateTimeParts } = require("./utils");
 const { normalizeNumbers } = require("./numberNormalizer");
 const { TIMEZONE } = require("./config");
@@ -380,10 +379,10 @@ async function runWeeklyStatsBackfill(userId = getDefaultUserId()) {
 
     const context = await getWeekDietContext(weekStart, { userId });
 
-    const result = await upsertWeeklyStatsRow({
-      user_id: userId,
-      week_start: context.week_start,
-      week_end: context.week_end,
+    const result = await upsertWeeklyStatsSnapshot({
+      userSlug: userId,
+      weekStart: context.week_start,
+      weekEnd: context.week_end,
       intake: context.summary.intake,
       activity: context.summary.activity,
       net: context.summary.net,
@@ -392,10 +391,10 @@ async function runWeeklyStatsBackfill(userId = getDefaultUserId()) {
       protein: context.summary.protein,
       carbs: context.summary.carbs,
       fat: context.summary.fat,
-      recent_meals_json: JSON.stringify(context.recent_meals || []),
-      food_frequency_json: JSON.stringify(context.food_frequency || {}),
-      variety_warnings_json: JSON.stringify(context.variety_warnings || []),
-      generated_at: new Date().toISOString(),
+      recentMealsJson: context.recent_meals || [],
+      foodFrequencyJson: context.food_frequency || {},
+      varietyWarningsJson: context.variety_warnings || [],
+      generatedAt: new Date().toISOString(),
       source: "backfill",
     });
 
@@ -403,7 +402,7 @@ async function runWeeklyStatsBackfill(userId = getDefaultUserId()) {
       user_id: userId,
       week_start: context.week_start,
       week_end: context.week_end,
-      updated: result.updated,
+      updated: Boolean(result),
     });
   }
 
@@ -558,6 +557,63 @@ function optionsSilvia() {
     },
     body: "",
   };
+}
+
+function buildDefaultSilviaMealPayload() {
+  return {
+    title: "Nessuna porzione inviata",
+    servings: "1 porzione",
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+    ingredients: [],
+  };
+}
+
+function mapSilviaMealStateRow(row) {
+  if (!row) {
+    return {
+      updatedAt: null,
+      payload: buildDefaultSilviaMealPayload(),
+    };
+  }
+
+  return {
+    updatedAt: row.updated_at || null,
+    payload: row.payload || buildDefaultSilviaMealPayload(),
+  };
+}
+
+async function getSilviaMealState() {
+  const result = await query(
+    `
+    SELECT payload, updated_at
+    FROM app_state
+    WHERE state_key = $1
+    LIMIT 1
+    `,
+    ["silvia_meal"],
+  );
+
+  return mapSilviaMealStateRow(result.rows[0]);
+}
+
+async function saveSilviaMealState(payload) {
+  const result = await query(
+    `
+    INSERT INTO app_state (state_key, payload, updated_at)
+    VALUES ($1, $2::jsonb, NOW())
+    ON CONFLICT (state_key)
+    DO UPDATE SET
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+    RETURNING payload, updated_at
+    `,
+    ["silvia_meal", JSON.stringify(payload)],
+  );
+
+  return mapSilviaMealStateRow(result.rows[0]);
 }
 
 async function getSilviaCurrent() {
@@ -1270,10 +1326,10 @@ async function httpHandler(event) {
     const context = await getWeekDietContext(referenceDate, { userId });
 
     try {
-      await upsertWeeklyStatsRow({
-        user_id: userId,
-        week_start: context.week_start,
-        week_end: context.week_end,
+      await upsertWeeklyStatsSnapshot({
+        userSlug: userId,
+        weekStart: context.week_start,
+        weekEnd: context.week_end,
         intake: context.summary.intake,
         activity: context.summary.activity,
         net: context.summary.net,
@@ -1282,10 +1338,10 @@ async function httpHandler(event) {
         protein: context.summary.protein,
         carbs: context.summary.carbs,
         fat: context.summary.fat,
-        recent_meals_json: JSON.stringify(context.recent_meals || []),
-        food_frequency_json: JSON.stringify(context.food_frequency || {}),
-        variety_warnings_json: JSON.stringify(context.variety_warnings || []),
-        generated_at: new Date().toISOString(),
+        recentMealsJson: context.recent_meals || [],
+        foodFrequencyJson: context.food_frequency || {},
+        varietyWarningsJson: context.variety_warnings || [],
+        generatedAt: new Date().toISOString(),
         source: "refresh",
       });
     } catch (error) {

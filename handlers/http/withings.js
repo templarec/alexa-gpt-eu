@@ -1,9 +1,54 @@
-const { getConfigValue, setConfigValue } = require("../../sheets");
+const { query } = require("../../db/postgres");
 
 function cleanValue(value) {
   if (value == null) return null;
   const cleaned = String(value).trim();
   return cleaned.length ? cleaned : null;
+}
+
+async function getConfigValue(key) {
+  const result = await query(
+    `
+    SELECT payload
+    FROM app_state
+    WHERE state_key = $1
+    LIMIT 1
+    `,
+    [`config:${key}`],
+  );
+
+  const payload = result.rows[0]?.payload;
+
+  if (payload == null) {
+    return null;
+  }
+
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  if (
+    typeof payload === "object" &&
+    Object.prototype.hasOwnProperty.call(payload, "value")
+  ) {
+    return payload.value;
+  }
+
+  return String(payload);
+}
+
+async function setConfigValue(key, value) {
+  await query(
+    `
+    INSERT INTO app_state (state_key, payload, updated_at)
+    VALUES ($1, $2::jsonb, NOW())
+    ON CONFLICT (state_key)
+    DO UPDATE SET
+      payload = EXCLUDED.payload,
+      updated_at = NOW()
+    `,
+    [`config:${key}`, JSON.stringify(value)],
+  );
 }
 
 async function refreshWithingsAccessToken() {
