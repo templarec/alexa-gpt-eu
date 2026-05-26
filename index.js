@@ -747,12 +747,16 @@ function buildMealHandler(intentName, mealType) {
             source_url: null,
           };
 
+          const alexaUserId = getDefaultUserId();
+
           await createActivityFromHttp(
             { body: JSON.stringify(activityPayload) },
-            { date, time },
+            { date, time, userId: alexaUserId },
           );
 
-          const activityReport = await getTodayDietReport(date);
+          const activityReport = await getTodayDietReport(date, null, {
+            userId: alexaUserId,
+          });
           const activityRemaining = Number(
             activityReport?.summary?.remaining ?? 0,
           );
@@ -783,6 +787,8 @@ function buildMealHandler(intentName, mealType) {
             .getResponse();
         }
 
+        const alexaUserId = getDefaultUserId();
+
         await createMealFromHttp(
           {
             body: JSON.stringify({
@@ -795,10 +801,12 @@ function buildMealHandler(intentName, mealType) {
               source: "alexa",
             }),
           },
-          { date, time, userId: getDefaultUserId() },
+          { date, time, userId: alexaUserId },
         );
 
-        const mealReport = await getTodayDietReport(date);
+        const mealReport = await getTodayDietReport(date, null, {
+          userId: alexaUserId,
+        });
         const remaining = Number(mealReport?.summary?.remaining ?? 0);
 
         let remainingSpeech;

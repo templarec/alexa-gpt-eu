@@ -26,7 +26,11 @@ const DailySummaryIntentHandler = {
   async handle(handlerInput) {
     try {
       const { date } = getDateTimeParts(TIMEZONE);
-      const report = await getTodayDietReport(date);
+      const alexaUserId = process.env.DEFAULT_USER_ID || "lorenzo";
+
+      const report = await getTodayDietReport(date, null, {
+        userId: alexaUserId,
+      });
       const { summary, meals } = report;
       const remainingTarget = Number(summary.remaining || 0);
       const realDeficit = LORENZO_TDEE - Number(summary.net || 0);
