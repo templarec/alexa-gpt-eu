@@ -110,8 +110,10 @@ async function createMealFromHttp(
     fat,
   ];
 
+  let insertedMeal = null;
+
   try {
-    await insertMeal({
+    insertedMeal = await insertMeal({
       userSlug: normalizedUserId,
       date,
       time,
@@ -153,6 +155,7 @@ async function createMealFromHttp(
   return jsonResponse(200, {
     success: true,
     saved: {
+      id: insertedMeal?.id || null,
       user_id: normalizedUserId,
       date,
       time,
@@ -218,8 +221,10 @@ async function createAnalyzedMealFromHttp(
       fat,
     ];
 
+    let insertedMeal = null;
+
     try {
-      await insertMeal({
+      insertedMeal = await insertMeal({
         userSlug: normalizedUserId,
         date,
         time,
@@ -261,6 +266,7 @@ async function createAnalyzedMealFromHttp(
     return jsonResponse(200, {
       success: true,
       saved: {
+        id: insertedMeal?.id || null,
         user_id: normalizedUserId,
         date,
         time,
@@ -284,8 +290,16 @@ async function createAnalyzedMealFromHttp(
 
 async function getMealsToday({ date, userId = DEFAULT_USER_ID }) {
   const normalizedUserId = normalizeUserId(userId);
-  const rows = await getTodayMealRows(date, normalizedUserId);
-  return jsonResponse(200, rows);
+
+  const meals = await getMeals({
+    userSlug: normalizedUserId,
+    date,
+  });
+
+  return jsonResponse(200, {
+    success: true,
+    meals,
+  });
 }
 
 function getMealIdFromPath(path) {
