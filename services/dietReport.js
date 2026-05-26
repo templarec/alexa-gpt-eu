@@ -83,10 +83,7 @@ async function getTodayDietReport(
     limit: 100000,
   });
 
-  const activityRows = await getActivitiesByDate({
-    userSlug: userId,
-    date: todayDate,
-  });
+  const activityRows = await getActivitiesByDate(userId, todayDate);
 
   const activityEntries = buildNormalizedActivityEntries(activityRows);
 
@@ -129,7 +126,7 @@ async function getTodayDietReport(
 
   const net = intake + activity;
 
-  const latestBody = await getLatestBodyMetric({ userSlug: userId });
+  const latestBody = await getLatestBodyMetric(userId);
   const fallbackWeightKg = Number(
     latestBody?.weight || process.env.USER_WEIGHT_KG || 95,
   );
@@ -187,8 +184,7 @@ async function getTodayDietReport(
   };
 
   if (!skipDailyStatsSnapshot) {
-    await upsertDailyStatsSnapshot({
-      userSlug: userId,
+    await upsertDailyStatsSnapshot(userId, {
       date: todayDate,
       intake: summary.intake,
       activity: summary.activity,

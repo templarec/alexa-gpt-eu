@@ -216,19 +216,22 @@ async function getWeekDietContext(referenceDate, options = {}) {
     limit: 100000,
   });
 
-  const rawActivities = await getActivitiesByDateRange({
-    userSlug: userId,
-    startDate: week_start,
-    endDate: week_end,
-  });
+  const rawActivities = await getActivitiesByDateRange(
+    userId,
+    week_start,
+    week_end,
+  );
 
   const meals = rawMeals
     .map(normalizeMeal)
     .filter((meal) => isDateInRange(meal.date, week_start, week_end));
 
-  const activities = buildNormalizedActivityEntries(rawActivities).filter(
-    (activity) => isDateInRange(activity.date, week_start, week_end),
-  );
+  const activities = buildNormalizedActivityEntries(rawActivities)
+    .map((activity) => ({
+      ...activity,
+      date: normalizeDateString(activity.date),
+    }))
+    .filter((activity) => isDateInRange(activity.date, week_start, week_end));
 
   const dates = getDatesInRange(week_start, week_end);
   const days = dates.map((date) =>

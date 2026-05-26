@@ -1,5 +1,14 @@
 const { query } = require("../db/postgres");
 
+function toNullableNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 async function upsertDailyStatsSnapshot(userSlug, data) {
   const result = await query(
     `
@@ -75,11 +84,11 @@ async function upsertDailyStatsSnapshot(userSlug, data) {
       data.protein,
       data.carbs,
       data.fat,
-      data.weight,
-      data.bodyFat,
-      data.tdeeFormula,
-      data.tdeeAdaptive,
-      data.tdeeFinal,
+      toNullableNumber(data.weight),
+      toNullableNumber(data.bodyFat),
+      toNullableNumber(data.tdeeFormula),
+      toNullableNumber(data.tdeeAdaptive),
+      toNullableNumber(data.tdeeFinal),
       data.source || "runtime",
     ],
   );

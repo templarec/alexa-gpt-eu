@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
-  title: Dieta API
-  version: 4.3.0
+  title: Veyra
+  version: 4.4.0
 
 servers:
   - url: https://fqyircpk2e.execute-api.eu-west-1.amazonaws.com
@@ -48,6 +48,10 @@ paths:
                     items:
                       type: object
                       properties:
+                        id:
+                          type: string
+                          format: uuid
+                          description: ID PostgreSQL reale del pasto, da usare per GET/PATCH/DELETE /meals/{id}
                         date:
                           type: string
                         time:
@@ -118,7 +122,8 @@ paths:
                       type: object
                       properties:
                         id:
-                          type: integer
+                          type: string
+                          format: uuid
                         date:
                           type: string
                         time:
@@ -192,6 +197,9 @@ paths:
                   saved:
                     type: object
                     properties:
+                      id:
+                        type: string
+                        format: uuid
                       date:
                         type: string
                       time:
@@ -220,7 +228,8 @@ paths:
           required: true
           description: ID del pasto
           schema:
-            type: integer
+            type: string
+            format: uuid
       responses:
         "200":
           description: Pasto trovato
@@ -235,7 +244,8 @@ paths:
                     type: object
                     properties:
                       id:
-                        type: integer
+                        type: string
+                        format: uuid
                       date:
                         type: string
                       time:
@@ -283,7 +293,8 @@ paths:
           required: true
           description: ID del pasto da modificare
           schema:
-            type: integer
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -335,7 +346,8 @@ paths:
                     type: object
                     properties:
                       id:
-                        type: integer
+                        type: string
+                        format: uuid
                       date:
                         type: string
                       time:
@@ -394,7 +406,8 @@ paths:
           required: true
           description: ID del pasto da eliminare
           schema:
-            type: integer
+            type: string
+            format: uuid
       responses:
         "200":
           description: Pasto eliminato correttamente
@@ -459,6 +472,9 @@ paths:
                   saved:
                     type: object
                     properties:
+                      id:
+                        type: string
+                        format: uuid
                       date:
                         type: string
                       time:
@@ -847,6 +863,9 @@ paths:
                         items:
                           type: object
                           properties:
+                            id:
+                              type: string
+                              format: uuid
                             date:
                               type: string
                             meal_type:

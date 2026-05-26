@@ -1,5 +1,18 @@
 const { query } = require("../db/postgres");
-const { getUserIdBySlug } = require("./usersRepository");
+
+async function resolveUserId(userSlug) {
+  const result = await query(
+    `
+    SELECT id
+    FROM users
+    WHERE slug = $1
+    LIMIT 1
+    `,
+    [userSlug],
+  );
+
+  return result.rows[0]?.id || null;
+}
 
 async function upsertWeeklyStatsSnapshot({
   userSlug,
@@ -19,7 +32,7 @@ async function upsertWeeklyStatsSnapshot({
   generatedAt,
   source,
 }) {
-  const userId = await getUserIdBySlug(userSlug);
+  const userId = await resolveUserId(userSlug);
 
   if (!userId) {
     throw new Error(`Unknown user slug: ${userSlug}`);
@@ -92,7 +105,7 @@ async function upsertWeeklyStatsSnapshot({
 }
 
 async function getWeeklyStats({ userSlug, weekStart }) {
-  const userId = await getUserIdBySlug(userSlug);
+  const userId = await resolveUserId(userSlug);
 
   if (!userId) {
     throw new Error(`Unknown user slug: ${userSlug}`);
