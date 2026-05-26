@@ -1,4 +1,5 @@
 const { getTodayDietReport } = require("../../services/dietReport");
+const { getWeekDietContext } = require("../../services/weekContext");
 const { jsonResponse } = require("../../utils/http");
 
 const DEFAULT_USER_ID = String(process.env.DEFAULT_USER_ID || "lorenzo")
@@ -20,7 +21,27 @@ async function handleGetDietToday({ date, userId = DEFAULT_USER_ID }) {
     userId: normalizedUserId,
   });
 
-  return jsonResponse(200, report);
+  let weekContext = null;
+
+  try {
+    weekContext = await getWeekDietContext(date, {
+      userId: normalizedUserId,
+    });
+  } catch (error) {
+    console.error(
+      "DIET TODAY WEEK CONTEXT FAILED",
+      JSON.stringify({
+        userId: normalizedUserId,
+        date,
+        message: String(error?.message || error),
+      }),
+    );
+  }
+
+  return jsonResponse(200, {
+    ...report,
+    week_context: weekContext,
+  });
 }
 
 module.exports = {

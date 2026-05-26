@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Veyra
-  version: 4.4.0
+  version: 4.5.0
 
 servers:
   - url: https://fqyircpk2e.execute-api.eu-west-1.amazonaws.com
@@ -70,6 +70,89 @@ paths:
                           type: number
                         running_total:
                           type: number
+                  week_context:
+                    type: object
+                    nullable: true
+                    description: Contesto settimanale integrato nel report giornaliero. Usare questo campo invece di chiamare /diet/week-context quando si consiglia un pasto.
+                    properties:
+                      week_start:
+                        type: string
+                      week_end:
+                        type: string
+                      summary:
+                        type: object
+                        properties:
+                          intake:
+                            type: number
+                          activity:
+                            type: number
+                          net:
+                            type: number
+                          target:
+                            type: number
+                          remaining:
+                            type: number
+                          protein:
+                            type: number
+                          carbs:
+                            type: number
+                          fat:
+                            type: number
+                          avg_daily_intake:
+                            type: number
+                          avg_daily_net:
+                            type: number
+                      days:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                            intake:
+                              type: number
+                            activity:
+                              type: number
+                            net:
+                              type: number
+                            target:
+                              type: number
+                            remaining:
+                              type: number
+                            protein:
+                              type: number
+                            carbs:
+                              type: number
+                            fat:
+                              type: number
+                            meals_count:
+                              type: number
+                            activities_count:
+                              type: number
+                      recent_meals:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            date:
+                              type: string
+                            meal_type:
+                              type: string
+                            description:
+                              type: string
+                            calories:
+                              type: number
+                      food_frequency:
+                        type: object
+                        additionalProperties:
+                          type: number
+                      variety_warnings:
+                        type: array
+                        items:
+                          type: string
 
   /meals:
     get:

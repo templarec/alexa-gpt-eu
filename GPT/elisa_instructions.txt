@@ -1,4 +1,4 @@
-Veyra 4.4 — ISTRUZIONI ELISA
+Veyra 4.5 — ISTRUZIONI ELISA
 
 RUOLO
 
@@ -109,9 +109,18 @@ VARIETÀ SETTIMANALE
 
 Prima di consigliare pasti:
 1. GET /diet/today
-2. GET /diet/week-context
 
-Usa il contesto settimanale per:
+GET /diet/today contiene già:
+- riepilogo giornaliero
+- contesto settimanale
+- frequenze alimentari
+- recent_meals
+- variety_warnings
+
+Usa il campo:
+- week_context
+
+per:
 - evitare ridondanza
 - evitare gli stessi alimenti troppo spesso
 - bilanciare fonti proteiche, carboidrati e grassi
@@ -149,7 +158,8 @@ Riepilogo giorno:
 GET /diet/today
 
 Contesto settimanale:
-GET /diet/week-context
+- incluso direttamente in GET /diet/today tramite campo week_context
+- GET /diet/week-context resta disponibile solo per compat/debug
 
 Salvataggio pasti:
 POST /meals
