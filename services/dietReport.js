@@ -12,6 +12,7 @@ const {
 } = require("../utils/activity-normalizer");
 const { roundNumber } = require("../utils/numbers-and-dates");
 const { getDynamicTdee } = require("../utils/tdee");
+const { computeAdaptiveTarget } = require("../utils/adaptive-target");
 
 const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID || "lorenzo";
 
@@ -42,9 +43,29 @@ async function getUserConfigValue(key, userId) {
   return await getUserConfigValueFromPostgres(userId, key);
 }
 
-async function resolveDietTarget({ userId, targetCalories, finalTdee }) {
+async function resolveDietTarget({
+  userId,
+  targetCalories,
+  finalTdee,
+  weightKg,
+  bodyFatPercent,
+  sex,
+  age,
+  heightCm,
+}) {
   if (targetCalories !== null && targetCalories !== undefined) {
-    return Number(targetCalories);
+    return {
+      targetCalories: Number(targetCalories),
+      mode: "explicit",
+      recommendedDeficit: Number(finalTdee) - Number(targetCalories),
+      deficitPercent:
+        Number.isFinite(Number(finalTdee)) && Number(finalTdee) > 0
+          ? (Number(finalTdee) - Number(targetCalories)) / Number(finalTdee)
+          : null,
+      aggressiveness: "explicit",
+      safetyFlags: [],
+      reasoning: "Explicit targetCalories argument provided.",
+    };
   }
 
   const mode =
@@ -57,16 +78,71 @@ async function resolveDietTarget({ userId, targetCalories, finalTdee }) {
     1750,
   );
 
-  const deficit = parseConfigNumber(
+  const fixedDeficit = parseConfigNumber(
     await getUserConfigValue("diet_deficit_kcal", userId),
     700,
   );
 
-  if (mode === "dynamic" && Number.isFinite(Number(finalTdee))) {
-    return Math.round(Number(finalTdee) - deficit);
+  const aggressiveness =
+    String(
+      (await getUserConfigValue("diet_aggressiveness", userId)) || "moderate",
+    )
+      .trim()
+      .toLowerCase() || "moderate";
+
+  const minimumCaloriesFloor = parseConfigNumber(
+    await getUserConfigValue("minimum_calories_floor", userId),
+    null,
+  );
+
+  const maxDeficitPercent = parseConfigNumber(
+    await getUserConfigValue("max_deficit_percent", userId),
+    null,
+  );
+
+  if (mode === "adaptive" && Number.isFinite(Number(finalTdee))) {
+    return computeAdaptiveTarget({
+      tdee: Number(finalTdee),
+      weightKg,
+      bodyFatPercent,
+      sex,
+      age,
+      heightCm,
+      aggressiveness,
+      minimumCaloriesFloor,
+      maxDeficitPercent,
+    });
   }
 
-  return manualTarget;
+  if (mode === "dynamic" && Number.isFinite(Number(finalTdee))) {
+    const target = Math.round(Number(finalTdee) - fixedDeficit);
+
+    return {
+      targetCalories: target,
+      mode: "dynamic_fixed_deficit",
+      recommendedDeficit: fixedDeficit,
+      deficitPercent:
+        Number(finalTdee) > 0 ? fixedDeficit / Number(finalTdee) : null,
+      aggressiveness: "legacy_fixed",
+      safetyFlags: [],
+      reasoning: "Legacy dynamic mode: target = finalTdee - diet_deficit_kcal.",
+    };
+  }
+
+  return {
+    targetCalories: manualTarget,
+    mode: "manual",
+    recommendedDeficit: Number.isFinite(Number(finalTdee))
+      ? Number(finalTdee) - manualTarget
+      : null,
+    deficitPercent:
+      Number.isFinite(Number(finalTdee)) && Number(finalTdee) > 0
+        ? (Number(finalTdee) - manualTarget) / Number(finalTdee)
+        : null,
+    aggressiveness: "manual",
+    safetyFlags: [],
+    reasoning: "Manual diet target mode.",
+  };
 }
 
 async function getTodayDietReport(
@@ -156,12 +232,18 @@ async function getTodayDietReport(
     getConfigValue: (key) => getUserConfigValue(key, userId),
   });
 
-  const target = await resolveDietTarget({
+  const targetDecision = await resolveDietTarget({
     userId,
     targetCalories,
     finalTdee: tdee.finalTdee,
+    weightKg: latestBody?.weight ?? fallbackWeightKg,
+    bodyFatPercent: latestBody?.body_fat ?? latestBody?.bodyFat ?? null,
+    sex: fallbackSex,
+    age: fallbackAge,
+    heightCm: fallbackHeightCm,
   });
 
+  const target = targetDecision.targetCalories;
   const remaining = target - net;
 
   const summary = {
@@ -181,6 +263,16 @@ async function getTodayDietReport(
     tdee_adaptive_capped: tdee.adaptiveTdeeCapped ?? false,
     tdee_adaptive_suspicious: tdee.adaptiveTdeeSuspicious ?? false,
     tdee: tdee.finalTdee ?? null,
+    target_mode: targetDecision.mode,
+    target_deficit: roundNumber(targetDecision.recommendedDeficit),
+    target_deficit_percent:
+      targetDecision.deficitPercent !== null &&
+      targetDecision.deficitPercent !== undefined
+        ? roundNumber(targetDecision.deficitPercent * 100)
+        : null,
+    target_aggressiveness: targetDecision.aggressiveness,
+    target_safety_flags: targetDecision.safetyFlags || [],
+    target_reasoning: targetDecision.reasoning || null,
   };
 
   if (!skipDailyStatsSnapshot) {
