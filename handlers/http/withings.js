@@ -11,10 +11,15 @@ async function getConfigValue(key) {
     `
     SELECT payload
     FROM app_state
-    WHERE state_key = $1
+    WHERE state_key IN ($1, $2)
+    ORDER BY
+      CASE
+        WHEN state_key = $1 THEN 0
+        ELSE 1
+      END
     LIMIT 1
     `,
-    [`config:${key}`],
+    [`config:${key}`, key],
   );
 
   const payload = result.rows[0]?.payload;
