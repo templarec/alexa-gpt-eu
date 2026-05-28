@@ -56,6 +56,128 @@ async function setConfigValue(key, value) {
   );
 }
 
+const WITHINGS_TOKEN_URL = "https://wbsapi.withings.net/v2/oauth2";
+
+function getWithingsRedirectUri() {
+  return (
+    cleanValue(process.env.WITHINGS_REDIRECT_URI) ||
+    "https://fqyircpk2e.execute-api.eu-west-1.amazonaws.com/withings/callback"
+  );
+}
+
+async function exchangeWithingsAuthorizationCode(code) {
+  const clientId = cleanValue(process.env.WITHINGS_CLIENT_ID);
+  const clientSecret = cleanValue(process.env.WITHINGS_CLIENT_SECRET);
+  const redirectUri = getWithingsRedirectUri();
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing WITHINGS_CLIENT_ID or WITHINGS_CLIENT_SECRET");
+  }
+
+  const params = new URLSearchParams({
+    action: "requesttoken",
+    grant_type: "authorization_code",
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    redirect_uri: redirectUri,
+  });
+
+  console.log(
+    "WITHINGS AUTHORIZATION CODE EXCHANGE REQUEST",
+    JSON.stringify({
+      redirectUri,
+      codeLength: code?.length || 0,
+    }),
+  );
+
+  const response = await fetch(WITHINGS_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
+
+  const rawText = await response.text();
+
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    data = null;
+  }
+
+  console.log(
+    "WITHINGS AUTHORIZATION CODE EXCHANGE RESPONSE",
+    JSON.stringify({
+      httpStatus: response.status,
+      apiStatus: data?.status ?? null,
+      hasAccessToken: !!data?.body?.access_token,
+      hasRefreshToken: !!data?.body?.refresh_token,
+      error: data?.error ?? null,
+      errors: data?.errors ?? null,
+    }),
+  );
+
+  if (!response.ok || data?.status !== 0 || !data?.body?.access_token) {
+    throw new Error(
+      `Withings authorization code exchange failed: HTTP ${response.status} / apiStatus ${data?.status ?? "null"} / raw ${rawText}`,
+    );
+  }
+
+  const accessToken = cleanValue(data.body.access_token);
+  const refreshToken = cleanValue(data.body.refresh_token);
+  const expiresIn = data.body?.expires_in ?? null;
+
+  if (!accessToken || !refreshToken) {
+    throw new Error(`Withings token response missing tokens: ${rawText}`);
+  }
+
+  await saveWithingsTokens({
+    accessToken,
+    refreshToken,
+    expiresIn,
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+    expiresIn,
+  };
+}
+
+async function saveWithingsTokens({
+  accessToken,
+  refreshToken,
+  expiresIn = null,
+}) {
+  await setConfigValue("withings_access_token", {
+    value: accessToken,
+  });
+
+  await setConfigValue("withings_refresh_token", {
+    value: refreshToken,
+  });
+
+  await setConfigValue("withings_token_expires_in", {
+    value: expiresIn,
+  });
+
+  process.env.WITHINGS_ACCESS_TOKEN = accessToken;
+  process.env.WITHINGS_REFRESH_TOKEN = refreshToken;
+
+  console.log(
+    "WITHINGS TOKENS SAVED",
+    JSON.stringify({
+      accessTokenLength: accessToken?.length || 0,
+      refreshTokenLength: refreshToken?.length || 0,
+      refreshTokenSuffix: refreshToken?.slice(-8) || null,
+      expiresIn,
+    }),
+  );
+}
+
 async function refreshWithingsAccessToken() {
   const clientId = cleanValue(process.env.WITHINGS_CLIENT_ID);
   const clientSecret = cleanValue(process.env.WITHINGS_CLIENT_SECRET);
@@ -128,21 +250,13 @@ async function refreshWithingsAccessToken() {
 
   const newAccessToken = cleanValue(data.body.access_token);
   const newRefreshToken = cleanValue(data.body.refresh_token) || refreshToken;
+  const expiresIn = data.body?.expires_in ?? null;
 
-  await setConfigValue("withings_access_token", newAccessToken);
-  await setConfigValue("withings_refresh_token", newRefreshToken);
-
-  process.env.WITHINGS_ACCESS_TOKEN = newAccessToken;
-  process.env.WITHINGS_REFRESH_TOKEN = newRefreshToken;
-
-  console.log(
-    "WITHINGS REFRESH TOKEN SAVED",
-    JSON.stringify({
-      accessTokenLength: newAccessToken?.length || 0,
-      refreshTokenLength: newRefreshToken?.length || 0,
-      refreshTokenSuffix: newRefreshToken?.slice(-8) || null,
-    }),
-  );
+  await saveWithingsTokens({
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+    expiresIn,
+  });
 
   return {
     accessToken: newAccessToken,
@@ -535,6 +649,9 @@ function parseLatestWithingsDailyActivity(data, fallbackDate) {
 }
 
 module.exports = {
+  exchangeWithingsAuthorizationCode,
+  saveWithingsTokens,
+  getWithingsRedirectUri,
   refreshWithingsAccessToken,
   fetchWithingsMeasures,
   parseLatestWithingsMetrics,

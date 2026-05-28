@@ -37,6 +37,7 @@ const {
   fetchWithingsActivityByDate,
   parseLatestWithingsDailyActivity,
   parseWithingsWebhookPayload,
+  exchangeWithingsAuthorizationCode,
 } = require("./handlers/http/withings");
 const { DailySummaryIntentHandler } = require("./handlers/alexa/dailySummary");
 const { getKitchenPageHtml } = require("./views/kitchenPage");
@@ -213,6 +214,108 @@ async function invokeInternalWithingsWebhook(payload) {
   });
 
   await client.send(command);
+}
+
+function htmlResponse(statusCode, body) {
+  return {
+    statusCode,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body,
+  };
+}
+
+async function handleWithingsCallback(event) {
+  const queryParams = event.queryStringParameters || {};
+  const code = String(queryParams.code || "").trim();
+  const error = queryParams.error || null;
+
+  if (error) {
+    console.error(
+      "WITHINGS CALLBACK ERROR",
+      JSON.stringify({
+        error,
+        errorDescription: queryParams.error_description || null,
+      }),
+    );
+
+    return htmlResponse(
+      400,
+      `
+      <html>
+        <body style="font-family:sans-serif;padding:40px;">
+          <h2>Withings connection failed</h2>
+          <p>${String(error)}</p>
+        </body>
+      </html>
+      `,
+    );
+  }
+
+  if (!code) {
+    return htmlResponse(
+      400,
+      `
+      <html>
+        <body style="font-family:sans-serif;padding:40px;">
+          <h2>Missing Withings authorization code</h2>
+          <p>No <code>code</code> query parameter was received.</p>
+        </body>
+      </html>
+      `,
+    );
+  }
+
+  try {
+    console.log(
+      "WITHINGS CALLBACK RECEIVED",
+      JSON.stringify({ codeLength: code.length }),
+    );
+
+    const tokens = await exchangeWithingsAuthorizationCode(code);
+
+    console.log(
+      "WITHINGS TOKENS SAVED FROM CALLBACK",
+      JSON.stringify({
+        accessTokenLength: tokens.accessToken.length,
+        accessTokenSuffix: tokens.accessToken.slice(-8),
+        refreshTokenLength: tokens.refreshToken.length,
+        refreshTokenSuffix: tokens.refreshToken.slice(-8),
+        expiresIn: tokens.expiresIn || null,
+      }),
+    );
+
+    return htmlResponse(
+      200,
+      `
+      <html>
+        <body style="font-family:sans-serif;padding:40px;">
+          <h2>Withings connected</h2>
+          <p>Tokens saved successfully. You can close this page.</p>
+        </body>
+      </html>
+      `,
+    );
+  } catch (error) {
+    console.error(
+      "WITHINGS CALLBACK TOKEN EXCHANGE FAILED",
+      JSON.stringify({ message: String(error?.message || error) }),
+    );
+
+    return htmlResponse(
+      500,
+      `
+      <html>
+        <body style="font-family:sans-serif;padding:40px;">
+          <h2>Withings token exchange failed</h2>
+          <p>${String(error?.message || error)}</p>
+        </body>
+      </html>
+      `,
+    );
+  }
 }
 
 async function processWithingsWebhookAsync(payload) {
@@ -1064,6 +1167,10 @@ async function httpHandler(event) {
   const requestBody = tryParseJsonBody(event);
   const userId = resolveUserId(event, requestBody);
 
+  if (path.includes("/withings/callback") && method === "GET") {
+    return handleWithingsCallback(event);
+  }
+
   // Withings webhook (no auth)
   if (path.includes("/withings/webhook") && method === "POST") {
     console.log(
@@ -1128,9 +1235,10 @@ async function httpHandler(event) {
     (path.includes("/silvia/current") && method === "GET") ||
     (path.includes("/silvia/current") && method === "OPTIONS");
 
-  // Protect all HTTP routes except the Withings webhook and public display reads
+  // Protect all HTTP routes except the Withings webhook, Withings callback, and public display reads
   if (
     !path.includes("/withings/webhook") &&
+    !path.includes("/withings/callback") &&
     !isPublicDisplayGet &&
     !authorizeHttpRequest(event)
   ) {
