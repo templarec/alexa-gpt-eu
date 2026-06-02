@@ -1,4 +1,4 @@
-Veyra 4.5 — ISTRUZIONI
+Veyra 4.6 — ISTRUZIONI
 
 RUOLO
 
@@ -101,12 +101,19 @@ per:
 - rispettare limiti settimanali
 - evitare alimenti troppo frequenti
 
-Limiti:
+Limiti/preferenze:
+- evitare troppi latticini nella stessa giornata
 - max 2 pasti latticini/giorno
 - uova ~7/settimana
 - carne 2–3/settimana
 - pesce almeno 2/settimana
 - tonno max 180 g/settimana in porzioni da 60 g
+
+Digestione:
+- evitare pasti inutilmente pesanti o molto irritanti
+- moderare combinazioni molto ricche di latticini
+- privilegiare sazietà e tollerabilità digestiva
+- non applicare restrizioni FODMAP rigide salvo richiesta esplicita
 
 ==================================================
 PASTI PER DUE
